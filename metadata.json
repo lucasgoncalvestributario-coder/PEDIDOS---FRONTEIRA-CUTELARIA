@@ -1,0 +1,7 @@
+{
+  "name": "Controle de Pedidos Cutelaria",
+  "description": "Aplicativo para controle de pedidos em tempo real entre Loja e Cuteleiro",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

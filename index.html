@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Controle de Pedidos Cutelaria</title>
+    <meta name="description" content="Aplicativo para controle de pedidos em tempo real entre Loja e Cuteleiro" />
+    <meta property="og:title" content="Controle de Pedidos Cutelaria" />
+    <meta property="og:description" content="Aplicativo para controle de pedidos em tempo real entre Loja e Cuteleiro" />
+    <meta property="og:type" content="website" />
+    
+    <!-- PWA & Mobile Web App settings -->
+    <meta name="theme-color" content="#1c1917" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Cutelaria" />
+
+    <!-- Apple Touch Icon (Capa na tela de início do iPhone) -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="apple-touch-icon-precomposed" href="/apple-touch-icon.png" />
+
+    <!-- Favicon & PWA Manifest -->
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+  </head>
+  <body class="bg-stone-100 text-stone-900 antialiased min-h-screen select-none">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch((err) => {
+            console.log('[PWA] Service Worker registration ignored:', err);
+          });
+        });
+      }
+    </script>
+  </body>
+</html>
+
