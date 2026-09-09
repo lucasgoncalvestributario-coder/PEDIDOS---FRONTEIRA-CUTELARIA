@@ -13,12 +13,12 @@ export interface FirebaseConfigOptions {
 // You can either fill this object directly with your Firebase credentials
 // OR configure VITE_FIREBASE_* in Netlify / .env
 export const DEFAULT_FIREBASE_CONFIG: FirebaseConfigOptions = {
-  apiKey: '',
-  authDomain: '',
-  projectId: '',
-  storageBucket: '',
-  messagingSenderId: '',
-  appId: '',
+  apiKey: 'AIzaSyDuV4olLKfpjSwPgHuF6etJm2w1zMlu-7s',
+  authDomain: 'pedidos-fronteira-cutelaria.firebaseapp.com',
+  projectId: 'pedidos-fronteira-cutelaria',
+  storageBucket: 'pedidos-fronteira-cutelaria.firebasestorage.app',
+  messagingSenderId: '609071587205',
+  appId: '1:609071587205:web:41747dd55718e3a8a0aeec',
 };
 
 export function getFirebaseConfig(): FirebaseConfigOptions {
