@@ -7,81 +7,38 @@ import {
   updateOrderReadyInFirestore,
   updateOrderDeliveredInFirestore,
   subscribeFirestoreOrders,
+  fetchAllOrdersFromFirestore,
 } from './firebase';
 
 const metaEnv = (import.meta as unknown as { env?: Record<string, string> }).env;
 const API_BASE = (metaEnv?.VITE_API_URL || '').replace(/\/$/, '');
 
-// Seed initial orders for fallback / local testing
-const SEED_ORDERS: Order[] = [
-  {
-    id: 'PED-102',
-    orderNumber: 102,
-    customerName: 'JOAOZINHO',
-    customerPhone: '(48) 99612-9568',
-    services: [
-      { name: 'AFIAÇÃO', notes: '' },
-      { name: 'TROCA DE CABO', details: 'MESCLADO', notes: '' },
-    ],
-    totalAmount: 0,
-    paidAmount: 0,
-    isFullyPaid: true,
-    deliveryDate: '2026-09-15',
-    photoUrl: '/apple-touch-icon.png',
-    status: 'ENTREGUE',
-    createdAt: new Date().toISOString(),
-    createdBy: 'LOJA',
-    updatedAt: new Date().toISOString(),
-    completedAt: new Date().toISOString(),
-    deliveredAt: new Date().toISOString(),
-  },
-  {
-    id: 'PED-101',
-    orderNumber: 101,
-    customerName: 'LUCAS GONÇALVES',
-    customerPhone: '(48) 99612-9568',
-    services: [
-      { name: 'AFIAÇÃO', notes: '' },
-      { name: 'RESTAURAÇÃO', details: '', notes: '' },
-      { name: 'POLIMENTO', details: '', notes: 'BRILHANDO' },
-      { name: 'TROCA DE CABO', details: 'CHIFRE DE CERVO', notes: 'MESCLADO' },
-      { name: 'BAINHA', details: 'PRETA', notes: '' },
-    ],
-    totalAmount: 220,
-    paidAmount: 100,
-    isFullyPaid: false,
-    deliveryDate: '2026-09-15',
-    photoUrl: '/apple-touch-icon.png',
-    status: 'PENDENTE',
-    createdAt: new Date().toISOString(),
-    createdBy: 'LOJA',
-    updatedAt: new Date().toISOString(),
-  },
-];
+// Cache em memória compartilhado durante a sessão
+let inMemoryOrders: Order[] = [];
 
-// Helper: safe local storage operations
-const LOCAL_STORAGE_KEY = 'cutelaria_orders_cache_v2';
+// Chave para persistência offline complementar (somente se não houver internet)
+const OFFLINE_CACHE_KEY = 'cutelaria_offline_orders_cache';
 
-export function getLocalOrders(): Order[] {
+export function getOfflineCacheOrders(): Order[] {
   try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    const raw = localStorage.getItem(OFFLINE_CACHE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         return parsed;
       }
     }
   } catch (e) {
-    console.warn('[Storage] Error reading local orders:', e);
+    console.warn('[Cache] Erro ao ler cache offline:', e);
   }
-  return SEED_ORDERS;
+  return [];
 }
 
-export function saveLocalOrders(orders: Order[]) {
+export function saveOfflineCacheOrders(orders: Order[]) {
   try {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(orders));
+    localStorage.setItem(OFFLINE_CACHE_KEY, JSON.stringify(orders));
   } catch (e) {
-    console.warn('[Storage] Error saving local orders:', e);
+    console.warn('[Cache] Erro ao salvar cache offline:', e);
   }
 }
 
@@ -91,7 +48,7 @@ function isJsonResponse(res: Response): boolean {
   return contentType.includes('application/json');
 }
 
-// BroadcastChannel for cross-tab sync
+// BroadcastChannel para sincronização instantânea entre abas no mesmo dispositivo
 let realtimeChannel: BroadcastChannel | null = null;
 try {
   if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
@@ -156,30 +113,60 @@ export async function compressImage(file: File, maxDimension = 1280, quality = 0
   });
 }
 
+/**
+ * Busca os pedidos diretamente da fonte central (Firestore)
+ */
 export async function fetchOrders(): Promise<Order[]> {
-  // 1. If backend API is configured and responds, use it
+  initFirebase();
+
+  // 1. Prioridade absoluta: Buscar do Firestore (banco de dados central compartilhado)
+  if (isFirebaseActive()) {
+    try {
+      const firestoreOrders = await fetchAllOrdersFromFirestore();
+      if (firestoreOrders.length > 0 || inMemoryOrders.length === 0) {
+        inMemoryOrders = firestoreOrders;
+        saveOfflineCacheOrders(firestoreOrders);
+        return firestoreOrders;
+      }
+    } catch (err) {
+      console.warn('[Firestore] Falha ao buscar pedidos do banco central:', err);
+    }
+  }
+
+  // 2. Se houver backend REST configurado
   if (API_BASE) {
     try {
       const res = await fetch(`${API_BASE}/api/orders`);
       if (res.ok && isJsonResponse(res)) {
         const data = await res.json();
         if (Array.isArray(data)) {
-          saveLocalOrders(data);
+          inMemoryOrders = data;
+          saveOfflineCacheOrders(data);
           return data;
         }
       }
     } catch (err) {
-      console.warn('[API] Server fetch failed, falling back:', err);
+      console.warn('[API] Server fetch failed:', err);
     }
   }
 
-  // 2. Return cached orders (populated from Firestore or local storage)
-  return getLocalOrders();
+  // 3. Fallback complementar se estiver completamente offline
+  if (inMemoryOrders.length > 0) {
+    return inMemoryOrders;
+  }
+  return getOfflineCacheOrders();
 }
 
+/**
+ * Cria um novo pedido e grava diretamente no Firestore central
+ */
 export async function createOrder(orderData: Partial<Order>): Promise<Order> {
-  const current = getLocalOrders();
-  const nextNumber = current.length > 0 ? Math.max(...current.map((o) => o.orderNumber || 0)) + 1 : 101;
+  initFirebase();
+
+  // Determinar o próximo número de pedido sequencial com base no histórico real
+  const currentOrders = inMemoryOrders.length > 0 ? inMemoryOrders : getOfflineCacheOrders();
+  const maxNumber = currentOrders.reduce((max, o) => Math.max(max, Number(o.orderNumber) || 0), 100);
+  const nextNumber = maxNumber + 1;
   const newId = `PED-${nextNumber}`;
 
   const newOrder: Order = {
@@ -199,14 +186,17 @@ export async function createOrder(orderData: Partial<Order>): Promise<Order> {
     updatedAt: new Date().toISOString(),
   };
 
-  // 1. Salvar no Firestore (Sincronização global para todos os celulares)
-  try {
-    await saveOrderToFirestore(newOrder);
-  } catch (err) {
-    console.warn('[Firebase] Erro ao salvar pedido no Firestore:', err);
+  // 1. Gravar DIRETAMENTE no Firestore (banco central para todos os aparelhos)
+  if (isFirebaseActive()) {
+    try {
+      await saveOrderToFirestore(newOrder);
+      console.info(`[Firestore] Pedido ${newId} salvo com sucesso no banco central.`);
+    } catch (err) {
+      console.error('[Firestore] Erro ao gravar pedido no banco central:', err);
+    }
   }
 
-  // 2. Tentar salvar no servidor backend se existir
+  // 2. Tentar salvar no backend REST caso exista
   if (API_BASE) {
     try {
       await fetch(`${API_BASE}/api/orders`, {
@@ -219,22 +209,25 @@ export async function createOrder(orderData: Partial<Order>): Promise<Order> {
     }
   }
 
-  // 3. Atualizar cache local e disparar evento
-  const updatedOrders = [newOrder, ...current.filter((o) => o.id !== newOrder.id)];
-  saveLocalOrders(updatedOrders);
+  // Atualiza memória local e propaga para abas irmãs
+  inMemoryOrders = [newOrder, ...inMemoryOrders.filter((o) => o.id !== newOrder.id)];
+  saveOfflineCacheOrders(inMemoryOrders);
   broadcastEventLocally({ type: 'ORDER_CREATED', order: newOrder });
 
   return newOrder;
 }
 
+/**
+ * Marca um pedido como PRONTA diretamente no Firestore central
+ */
 export async function markOrderReady(orderId: string): Promise<Order> {
-  const current = getLocalOrders();
-  const order = current.find((o) => o.id === orderId);
+  initFirebase();
   const now = new Date().toISOString();
+  const existing = inMemoryOrders.find((o) => o.id === orderId);
 
-  const updated: Order = order
+  const updated: Order = existing
     ? {
-        ...order,
+        ...existing,
         status: 'PRONTA',
         completedAt: now,
         updatedAt: now,
@@ -257,39 +250,43 @@ export async function markOrderReady(orderId: string): Promise<Order> {
         updatedAt: now,
       };
 
-  // 1. Atualizar no Firestore
-  try {
-    await updateOrderReadyInFirestore(orderId, now);
-  } catch (err) {
-    console.warn('[Firebase] Erro ao atualizar status no Firestore:', err);
+  // 1. Atualizar DIRETAMENTE no Firestore
+  if (isFirebaseActive()) {
+    try {
+      await updateOrderReadyInFirestore(orderId, now);
+      console.info(`[Firestore] Pedido ${orderId} marcado como PRONTA no banco central.`);
+    } catch (err) {
+      console.error('[Firestore] Erro ao atualizar status no Firestore:', err);
+    }
   }
 
-  // 2. Tentar servidor backend se existir
+  // 2. Servidor backend se configurado
   if (API_BASE) {
     try {
-      await fetch(`${API_BASE}/api/orders/${orderId}/ready`, {
-        method: 'PUT',
-      });
+      await fetch(`${API_BASE}/api/orders/${orderId}/ready`, { method: 'PUT' });
     } catch (err) {
       console.warn('[API] Server markOrderReady failed:', err);
     }
   }
 
-  // 3. Atualizar localmente
-  saveLocalOrders(current.map((o) => (o.id === orderId ? updated : o)));
+  inMemoryOrders = inMemoryOrders.map((o) => (o.id === orderId ? updated : o));
+  saveOfflineCacheOrders(inMemoryOrders);
   broadcastEventLocally({ type: 'ORDER_READY', order: updated });
 
   return updated;
 }
 
+/**
+ * Marca um pedido como ENTREGUE diretamente no Firestore central
+ */
 export async function deliverOrder(orderId: string): Promise<Order> {
-  const current = getLocalOrders();
-  const order = current.find((o) => o.id === orderId);
+  initFirebase();
   const now = new Date().toISOString();
+  const existing = inMemoryOrders.find((o) => o.id === orderId);
 
-  const updated: Order = order
+  const updated: Order = existing
     ? {
-        ...order,
+        ...existing,
         status: 'ENTREGUE',
         deliveredAt: now,
         updatedAt: now,
@@ -312,26 +309,27 @@ export async function deliverOrder(orderId: string): Promise<Order> {
         updatedAt: now,
       };
 
-  // 1. Atualizar no Firestore
-  try {
-    await updateOrderDeliveredInFirestore(orderId, now);
-  } catch (err) {
-    console.warn('[Firebase] Erro ao atualizar entrega no Firestore:', err);
+  // 1. Atualizar DIRETAMENTE no Firestore
+  if (isFirebaseActive()) {
+    try {
+      await updateOrderDeliveredInFirestore(orderId, now);
+      console.info(`[Firestore] Pedido ${orderId} marcado como ENTREGUE no banco central.`);
+    } catch (err) {
+      console.error('[Firestore] Erro ao atualizar entrega no Firestore:', err);
+    }
   }
 
-  // 2. Tentar servidor backend se existir
+  // 2. Servidor backend se configurado
   if (API_BASE) {
     try {
-      await fetch(`${API_BASE}/api/orders/${orderId}/deliver`, {
-        method: 'PUT',
-      });
+      await fetch(`${API_BASE}/api/orders/${orderId}/deliver`, { method: 'PUT' });
     } catch (err) {
       console.warn('[API] Server deliverOrder failed:', err);
     }
   }
 
-  // 3. Atualizar localmente
-  saveLocalOrders(current.map((o) => (o.id === orderId ? updated : o)));
+  inMemoryOrders = inMemoryOrders.map((o) => (o.id === orderId ? updated : o));
+  saveOfflineCacheOrders(inMemoryOrders);
   broadcastEventLocally({ type: 'ORDER_DELIVERED', order: updated });
 
   return updated;
@@ -378,6 +376,12 @@ export type RealTimeCallback = (event: {
   message?: string;
 }) => void;
 
+/**
+ * Assina atualizações em tempo real usando o listener do Firestore onSnapshot().
+ * NÃO realiza polling (sem setInterval/setTimeout contínuo).
+ * Quando qualquer celular ou computador altera dados no Firestore, todos os outros
+ * recebem a atualização instantaneamente.
+ */
 export function subscribeToRealTimeEvents(callback: RealTimeCallback): () => void {
   let eventSource: EventSource | null = null;
   let unsubscribeFirestore: (() => void) | null = null;
@@ -386,38 +390,48 @@ export function subscribeToRealTimeEvents(callback: RealTimeCallback): () => voi
   // 1. Sinaliza conexão pronta
   callback({ type: 'CONNECTED' });
 
-  // 2. Inicializar e Assinar Firestore (Tempo Real entre todos os dispositivos com mínimo de leituras)
+  // 2. Listener Oficial do Firestore onSnapshot()
   try {
     initFirebase();
     if (isFirebaseActive()) {
       unsubscribeFirestore = subscribeFirestoreOrders((remoteOrders) => {
-        if (!isClosed && Array.isArray(remoteOrders)) {
-          const previous = getLocalOrders();
-          saveLocalOrders(remoteOrders);
+        if (isClosed || !Array.isArray(remoteOrders)) return;
 
-          // Verificar se houve novo pedido
-          if (previous.length > 0 && remoteOrders.length > previous.length) {
-            const newest = remoteOrders[0];
-            const alreadyExisted = previous.some((p) => p.id === newest.id);
-            if (!alreadyExisted) {
-              callback({ type: 'ORDER_CREATED', order: newest });
-            }
+        const previousOrders = [...inMemoryOrders];
+        inMemoryOrders = remoteOrders;
+        saveOfflineCacheOrders(remoteOrders);
+
+        // Detectar se um pedido novo acabou de chegar de outro aparelho
+        if (previousOrders.length > 0 && remoteOrders.length > previousOrders.length) {
+          const newest = remoteOrders[0];
+          const existsInPrevious = previousOrders.some((p) => p.id === newest.id);
+          if (!existsInPrevious) {
+            callback({ type: 'ORDER_CREATED', order: newest });
           }
-
-          // Verificar se houve pedido que ficou pronto
-          for (const order of remoteOrders) {
-            const prev = previous.find((p) => p.id === order.id);
-            if (prev && prev.status === 'PENDENTE' && order.status === 'PRONTA') {
-              callback({ type: 'ORDER_READY', order });
-            }
-          }
-
-          callback({ type: 'ORDERS_SYNCED', orders: remoteOrders });
         }
+
+        // Detectar se algum pedido mudou para 'PRONTA'
+        for (const order of remoteOrders) {
+          const prev = previousOrders.find((p) => p.id === order.id);
+          if (prev && prev.status === 'PENDENTE' && order.status === 'PRONTA') {
+            callback({ type: 'ORDER_READY', order });
+          }
+        }
+
+        // Detectar se algum pedido foi entregue
+        for (const order of remoteOrders) {
+          const prev = previousOrders.find((p) => p.id === order.id);
+          if (prev && prev.status !== 'ENTREGUE' && order.status === 'ENTREGUE') {
+            callback({ type: 'ORDER_DELIVERED', order });
+          }
+        }
+
+        // Enviar lista completa e atualizada para a interface
+        callback({ type: 'ORDERS_SYNCED', orders: remoteOrders });
       });
     }
   } catch (err) {
-    console.warn('[Realtime] Erro ao conectar Firestore:', err);
+    console.warn('[Realtime] Erro ao conectar Firestore onSnapshot:', err);
   }
 
   // 3. Ouvir BroadcastChannel para eventos na mesma aba ou abas locais
@@ -431,22 +445,7 @@ export function subscribeToRealTimeEvents(callback: RealTimeCallback): () => voi
     realtimeChannel.addEventListener('message', handleBroadcastMessage);
   }
 
-  // 4. Ouvir evento de storage para sincronização cross-tab
-  const handleStorageEvent = (e: StorageEvent) => {
-    if (e.key === LOCAL_STORAGE_KEY && e.newValue) {
-      try {
-        const parsed = JSON.parse(e.newValue);
-        if (Array.isArray(parsed)) {
-          callback({ type: 'ORDERS_SYNCED', orders: parsed });
-        }
-      } catch {
-        // ignore
-      }
-    }
-  };
-  window.addEventListener('storage', handleStorageEvent);
-
-  // 5. SSE se houver backend local
+  // 4. SSE opcional se houver backend local
   if (API_BASE) {
     function connectSSE() {
       if (isClosed) return;
@@ -467,9 +466,6 @@ export function subscribeToRealTimeEvents(callback: RealTimeCallback): () => voi
             eventSource.close();
             eventSource = null;
           }
-          if (!isClosed) {
-            setTimeout(connectSSE, 15000);
-          }
         };
       } catch {
         // Backend not running SSE
@@ -489,6 +485,6 @@ export function subscribeToRealTimeEvents(callback: RealTimeCallback): () => voi
     if (realtimeChannel) {
       realtimeChannel.removeEventListener('message', handleBroadcastMessage);
     }
-    window.removeEventListener('storage', handleStorageEvent);
   };
 }
+

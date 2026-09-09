@@ -1,9 +1,22 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Coleção de pedidos compartilhada entre Loja e Cuteleiro
+    // Coleção central de pedidos da Cutelaria (Loja e Cuteleiro)
     match /orders/{orderId} {
-      allow read, write: if true;
+      // Leitura permitida para dispositivos operacionais sincronizarem em tempo real
+      allow read: if true;
+
+      // Criação: exige campos essenciais do pedido
+      allow create: if request.resource.data.customerName is string
+                    && request.resource.data.status in ['PENDENTE', 'EM PRODUÇÃO', 'PRONTA', 'ENTREGUE']
+                    && request.resource.data.orderNumber is number;
+
+      // Atualização: permite atualizar status, datas e detalhes do pedido
+      allow update: if request.resource.data.status in ['PENDENTE', 'EM PRODUÇÃO', 'PRONTA', 'ENTREGUE'];
+
+      // Exclusão: restrita ou protegida
+      allow delete: if request.auth != null;
     }
   }
 }
+

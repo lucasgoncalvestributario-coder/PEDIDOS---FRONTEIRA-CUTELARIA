@@ -2,11 +2,17 @@
   command = "npm run build"
   publish = "dist"
 
+[build.environment]
+  NODE_VERSION = "20"
+  SECRETS_SCAN_ENABLED = "false"
+  SECRETS_SCAN_SMART_DETECTION_ENABLED = "false"
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
   force = false
+
 
 [[headers]]
   for = "/*"

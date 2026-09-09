@@ -1,18 +1,16 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import {
-  initializeFirestore,
   getFirestore,
   Firestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
   collection,
   doc,
   setDoc,
   updateDoc,
+  deleteDoc,
+  getDocs,
   onSnapshot,
   query,
   orderBy,
-  limit,
   Unsubscribe,
 } from 'firebase/firestore';
 import { getFirebaseConfig, isFirebaseConfigured } from './firebaseConfig';
@@ -22,14 +20,15 @@ let firebaseApp: FirebaseApp | null = null;
 let firestoreDb: Firestore | null = null;
 let isInitAttempted = false;
 
+/**
+ * Inicializa o Firebase exatamente uma única vez utilizando as variáveis de ambiente VITE_*
+ */
 export function initFirebase(): { app: FirebaseApp | null; db: Firestore | null } {
-  if (isInitAttempted) {
+  if (firestoreDb) {
     return { app: firebaseApp, db: firestoreDb };
   }
-  isInitAttempted = true;
 
   if (!isFirebaseConfigured()) {
-    console.info('[Firebase] Configuração não fornecida. Operando em modo offline/local.');
     return { app: null, db: null };
   }
 
@@ -42,22 +41,11 @@ export function initFirebase(): { app: FirebaseApp | null; db: Firestore | null 
       firebaseApp = getApp();
     }
 
-    // Inicialização do Firestore com cache persistente multi-abas (IndexedDB)
-    // Minimiza leituras ao extremo: dados já carregados vêm do cache local
-    // e o servidor só envia deltas/alterações pontuais.
-    try {
-      firestoreDb = initializeFirestore(firebaseApp, {
-        localCache: persistentLocalCache({
-          tabManager: persistentMultipleTabManager(),
-        }),
-      });
-      console.info('[Firebase] Firestore inicializado com cache persistente multi-abas.');
-    } catch {
-      // Caso já tenha sido inicializado
-      firestoreDb = getFirestore(firebaseApp);
-    }
+    firestoreDb = getFirestore(firebaseApp);
+    isInitAttempted = true;
+    console.info('[Firebase] Firestore conectado com sucesso como banco central.');
   } catch (err) {
-    console.error('[Firebase] Erro ao inicializar:', err);
+    console.error('[Firebase] Erro ao conectar Firestore:', err);
     firebaseApp = null;
     firestoreDb = null;
   }
@@ -66,7 +54,7 @@ export function initFirebase(): { app: FirebaseApp | null; db: Firestore | null 
 }
 
 export function getDb(): Firestore | null {
-  if (!firestoreDb && !isInitAttempted) {
+  if (!firestoreDb) {
     initFirebase();
   }
   return firestoreDb;
@@ -77,20 +65,48 @@ export function isFirebaseActive(): boolean {
 }
 
 /**
- * Salva ou atualiza um pedido no Firestore
+ * Busca todos os pedidos diretamente do Firestore (banco central)
+ */
+export async function fetchAllOrdersFromFirestore(): Promise<Order[]> {
+  const db = getDb();
+  if (!db) return [];
+
+  try {
+    const ordersCol = collection(db, 'orders');
+    const q = query(ordersCol, orderBy('createdAt', 'desc'));
+    const snapshot = await getDocs(q);
+    const orders: Order[] = [];
+    snapshot.forEach((d) => {
+      const data = d.data() as Order;
+      orders.push({
+        ...data,
+        id: d.id,
+      });
+    });
+    return orders;
+  } catch (err) {
+    console.error('[Firestore] Erro ao buscar pedidos:', err);
+    return [];
+  }
+}
+
+/**
+ * Salva ou atualiza um pedido no Firestore central
  */
 export async function saveOrderToFirestore(order: Order): Promise<void> {
   const db = getDb();
-  if (!db) return;
+  if (!db) {
+    throw new Error('Firestore não está inicializado. Verifique as variáveis VITE_FIREBASE_* no Netlify.');
+  }
 
   const docRef = doc(db, 'orders', order.id);
-  // Remove campos undefined para evitar erros no Firestore
+  // Remove campos undefined para respeitar a especificação do Firestore
   const cleanOrder = JSON.parse(JSON.stringify(order));
   await setDoc(docRef, cleanOrder, { merge: true });
 }
 
 /**
- * Atualiza status para PRONTA no Firestore
+ * Atualiza status para PRONTA no Firestore central
  */
 export async function updateOrderReadyInFirestore(orderId: string, completedAt: string): Promise<void> {
   const db = getDb();
@@ -105,7 +121,7 @@ export async function updateOrderReadyInFirestore(orderId: string, completedAt: 
 }
 
 /**
- * Atualiza status para ENTREGUE no Firestore
+ * Atualiza status para ENTREGUE no Firestore central
  */
 export async function updateOrderDeliveredInFirestore(orderId: string, deliveredAt: string): Promise<void> {
   const db = getDb();
@@ -120,8 +136,21 @@ export async function updateOrderDeliveredInFirestore(orderId: string, delivered
 }
 
 /**
- * Ouve em tempo real as atualizações com consulta ordenada e limite
- * para economizar leituras e manter todos os celulares sincronizados.
+ * Exclui um pedido do Firestore central se necessário
+ */
+export async function deleteOrderFromFirestore(orderId: string): Promise<void> {
+  const db = getDb();
+  if (!db) return;
+
+  const docRef = doc(db, 'orders', orderId);
+  await deleteDoc(docRef);
+}
+
+/**
+ * Listener em tempo real via onSnapshot():
+ * Sempre que qualquer aparelho (celular, tablet ou PC) criar,
+ * alterar ou entregar um pedido, todos os outros aparelhos conectados
+ * recebem a atualização instantaneamente.
  */
 export function subscribeFirestoreOrders(
   onOrdersUpdated: (orders: Order[]) => void,
@@ -132,12 +161,11 @@ export function subscribeFirestoreOrders(
 
   try {
     const ordersCol = collection(db, 'orders');
-    // Consulta otimizada com limite de 150 pedidos recentes para evitar leituras desnecessárias
-    const q = query(ordersCol, orderBy('orderNumber', 'desc'), limit(150));
+    // Ordenação garantindo que os pedidos mais recentes apareçam no topo
+    const q = query(ordersCol, orderBy('createdAt', 'desc'));
 
     const unsubscribe = onSnapshot(
       q,
-      { includeMetadataChanges: false },
       (snapshot) => {
         const orders: Order[] = [];
         snapshot.forEach((d) => {
@@ -161,3 +189,4 @@ export function subscribeFirestoreOrders(
     return null;
   }
 }
+
