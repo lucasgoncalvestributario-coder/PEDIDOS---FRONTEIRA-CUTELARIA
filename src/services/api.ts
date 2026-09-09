@@ -3,9 +3,10 @@ import { Order, IntegrationLog } from '../types';
 import {
   initFirebase,
   isFirebaseActive,
-  saveOrderToFirestore,
+  createOrderInFirestore,
   updateOrderReadyInFirestore,
   updateOrderDeliveredInFirestore,
+  deleteOrderFromFirestore,
   subscribeFirestoreOrders,
   fetchAllOrdersFromFirestore,
 } from './firebase';
@@ -16,7 +17,7 @@ const API_BASE = (metaEnv?.VITE_API_URL || '').replace(/\/$/, '');
 // Cache em memória compartilhado durante a sessão
 let inMemoryOrders: Order[] = [];
 
-// Chave para persistência offline complementar (somente se não houver internet)
+// Chave para tolerância offline estrita (usada apenas se não houver internet)
 const OFFLINE_CACHE_KEY = 'cutelaria_offline_orders_cache';
 
 export function getOfflineCacheOrders(): Order[] {
@@ -69,9 +70,11 @@ function broadcastEventLocally(event: { type: string; order?: Order; message?: s
 }
 
 /**
- * Client-side image compression to ensure instant uploads on mobile devices
+ * Compressão de imagem otimizada para envio ultra-rápido no celular (800px / 0.72)
+ * Reduz fotos pesadas de smartphones de ~4MB para ~35KB-50KB, garantindo
+ * salvamento quase instantâneo no Firestore sem travar ou demorar.
  */
-export async function compressImage(file: File, maxDimension = 1280, quality = 0.82): Promise<string> {
+export async function compressImage(file: File, maxDimension = 800, quality = 0.72): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -105,7 +108,7 @@ export async function compressImage(file: File, maxDimension = 1280, quality = 0
         const dataUrl = canvas.toDataURL('image/jpeg', quality);
         resolve(dataUrl);
       };
-      img.onerror = () => reject(new Error('Erro ao carregar imagem para compressão'));
+      img.onerror = () => reject(new Error('Erro ao processar imagem'));
       img.src = e.target?.result as string;
     };
     reader.onerror = () => reject(new Error('Erro ao ler arquivo'));
@@ -114,22 +117,20 @@ export async function compressImage(file: File, maxDimension = 1280, quality = 0
 }
 
 /**
- * Busca os pedidos diretamente da fonte central (Firestore)
+ * Busca os pedidos diretamente da coleção central pedidosfronteira no Firestore
  */
 export async function fetchOrders(): Promise<Order[]> {
   initFirebase();
 
-  // 1. Prioridade absoluta: Buscar do Firestore (banco de dados central compartilhado)
+  // 1. Prioridade absoluta: Buscar do Firestore (banco central compartilhado)
   if (isFirebaseActive()) {
     try {
       const firestoreOrders = await fetchAllOrdersFromFirestore();
-      if (firestoreOrders.length > 0 || inMemoryOrders.length === 0) {
-        inMemoryOrders = firestoreOrders;
-        saveOfflineCacheOrders(firestoreOrders);
-        return firestoreOrders;
-      }
+      inMemoryOrders = firestoreOrders;
+      saveOfflineCacheOrders(firestoreOrders);
+      return firestoreOrders;
     } catch (err) {
-      console.warn('[Firestore] Falha ao buscar pedidos do banco central:', err);
+      console.warn('[Firestore] Falha ao buscar pedidosfronteira:', err);
     }
   }
 
@@ -158,19 +159,17 @@ export async function fetchOrders(): Promise<Order[]> {
 }
 
 /**
- * Cria um novo pedido e grava diretamente no Firestore central
+ * Cria um novo pedido e grava diretamente no Firestore (pedidosfronteira)
  */
 export async function createOrder(orderData: Partial<Order>): Promise<Order> {
   initFirebase();
 
-  // Determinar o próximo número de pedido sequencial com base no histórico real
+  // Determinar o próximo número de pedido sequencial com base no banco real
   const currentOrders = inMemoryOrders.length > 0 ? inMemoryOrders : getOfflineCacheOrders();
   const maxNumber = currentOrders.reduce((max, o) => Math.max(max, Number(o.orderNumber) || 0), 100);
   const nextNumber = maxNumber + 1;
-  const newId = `PED-${nextNumber}`;
 
-  const newOrder: Order = {
-    id: newId,
+  const newOrderData: Omit<Order, 'id'> = {
     orderNumber: nextNumber,
     customerName: (orderData.customerName || '').toUpperCase().trim(),
     customerPhone: orderData.customerPhone || '',
@@ -179,46 +178,47 @@ export async function createOrder(orderData: Partial<Order>): Promise<Order> {
     paidAmount: Number(orderData.paidAmount || 0),
     isFullyPaid: Boolean(orderData.isFullyPaid),
     deliveryDate: orderData.deliveryDate || '',
-    photoUrl: orderData.photoUrl,
+    photoUrl: orderData.photoUrl || '/apple-touch-icon.png',
+    photos: orderData.photos || (orderData.photoUrl ? [orderData.photoUrl] : []),
     status: 'PENDENTE',
     createdAt: new Date().toISOString(),
     createdBy: orderData.createdBy || 'LOJA',
     updatedAt: new Date().toISOString(),
   };
 
-  // 1. Gravar DIRETAMENTE no Firestore (banco central para todos os aparelhos)
+  // 1. Gravar DIRETAMENTE no Firestore (coleção pedidosfronteira)
+  let createdOrder: Order;
   if (isFirebaseActive()) {
     try {
-      await saveOrderToFirestore(newOrder);
-      console.info(`[Firestore] Pedido ${newId} salvo com sucesso no banco central.`);
+      createdOrder = await createOrderInFirestore(newOrderData);
+      console.info(`[Firestore] Pedido ${createdOrder.id} gravado com sucesso em pedidosfronteira.`);
     } catch (err) {
-      console.error('[Firestore] Erro ao gravar pedido no banco central:', err);
+      console.error('[Firestore] Erro ao gravar pedido em pedidosfronteira:', err);
+      createdOrder = { ...newOrderData, id: `PED-${nextNumber}` };
     }
+  } else {
+    createdOrder = { ...newOrderData, id: `PED-${nextNumber}` };
   }
 
-  // 2. Tentar salvar no backend REST caso exista
+  // 2. Servidor backend opcional se configurado
   if (API_BASE) {
-    try {
-      await fetch(`${API_BASE}/api/orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newOrder),
-      });
-    } catch (err) {
-      console.warn('[API] Server create failed:', err);
-    }
+    fetch(`${API_BASE}/api/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(createdOrder),
+    }).catch((err) => console.warn('[API] Server create failed:', err));
   }
 
-  // Atualiza memória local e propaga para abas irmãs
-  inMemoryOrders = [newOrder, ...inMemoryOrders.filter((o) => o.id !== newOrder.id)];
+  // Atualiza memória local e propaga
+  inMemoryOrders = [createdOrder, ...inMemoryOrders.filter((o) => o.id !== createdOrder.id)];
   saveOfflineCacheOrders(inMemoryOrders);
-  broadcastEventLocally({ type: 'ORDER_CREATED', order: newOrder });
+  broadcastEventLocally({ type: 'ORDER_CREATED', order: createdOrder });
 
-  return newOrder;
+  return createdOrder;
 }
 
 /**
- * Marca um pedido como PRONTA diretamente no Firestore central
+ * Marca um pedido como PRONTA diretamente no Firestore (pedidosfronteira)
  */
 export async function markOrderReady(orderId: string): Promise<Order> {
   initFirebase();
@@ -250,23 +250,18 @@ export async function markOrderReady(orderId: string): Promise<Order> {
         updatedAt: now,
       };
 
-  // 1. Atualizar DIRETAMENTE no Firestore
+  // 1. Atualizar DIRETAMENTE no Firestore (pedidosfronteira)
   if (isFirebaseActive()) {
-    try {
-      await updateOrderReadyInFirestore(orderId, now);
-      console.info(`[Firestore] Pedido ${orderId} marcado como PRONTA no banco central.`);
-    } catch (err) {
-      console.error('[Firestore] Erro ao atualizar status no Firestore:', err);
-    }
+    updateOrderReadyInFirestore(orderId, now).catch((err) =>
+      console.error('[Firestore] Erro ao atualizar status PRONTA:', err)
+    );
   }
 
-  // 2. Servidor backend se configurado
+  // 2. Servidor backend opcional
   if (API_BASE) {
-    try {
-      await fetch(`${API_BASE}/api/orders/${orderId}/ready`, { method: 'PUT' });
-    } catch (err) {
-      console.warn('[API] Server markOrderReady failed:', err);
-    }
+    fetch(`${API_BASE}/api/orders/${orderId}/ready`, { method: 'PUT' }).catch((err) =>
+      console.warn('[API] Server markOrderReady failed:', err)
+    );
   }
 
   inMemoryOrders = inMemoryOrders.map((o) => (o.id === orderId ? updated : o));
@@ -277,7 +272,7 @@ export async function markOrderReady(orderId: string): Promise<Order> {
 }
 
 /**
- * Marca um pedido como ENTREGUE diretamente no Firestore central
+ * Marca um pedido como ENTREGUE diretamente no Firestore (pedidosfronteira)
  */
 export async function deliverOrder(orderId: string): Promise<Order> {
   initFirebase();
@@ -309,23 +304,18 @@ export async function deliverOrder(orderId: string): Promise<Order> {
         updatedAt: now,
       };
 
-  // 1. Atualizar DIRETAMENTE no Firestore
+  // 1. Atualizar DIRETAMENTE no Firestore (pedidosfronteira)
   if (isFirebaseActive()) {
-    try {
-      await updateOrderDeliveredInFirestore(orderId, now);
-      console.info(`[Firestore] Pedido ${orderId} marcado como ENTREGUE no banco central.`);
-    } catch (err) {
-      console.error('[Firestore] Erro ao atualizar entrega no Firestore:', err);
-    }
+    updateOrderDeliveredInFirestore(orderId, now).catch((err) =>
+      console.error('[Firestore] Erro ao atualizar entrega:', err)
+    );
   }
 
-  // 2. Servidor backend se configurado
+  // 2. Servidor backend opcional
   if (API_BASE) {
-    try {
-      await fetch(`${API_BASE}/api/orders/${orderId}/deliver`, { method: 'PUT' });
-    } catch (err) {
-      console.warn('[API] Server deliverOrder failed:', err);
-    }
+    fetch(`${API_BASE}/api/orders/${orderId}/deliver`, { method: 'PUT' }).catch((err) =>
+      console.warn('[API] Server deliverOrder failed:', err)
+    );
   }
 
   inMemoryOrders = inMemoryOrders.map((o) => (o.id === orderId ? updated : o));
@@ -333,6 +323,21 @@ export async function deliverOrder(orderId: string): Promise<Order> {
   broadcastEventLocally({ type: 'ORDER_DELIVERED', order: updated });
 
   return updated;
+}
+
+/**
+ * Exclui um pedido diretamente no Firestore (pedidosfronteira)
+ */
+export async function deleteOrder(orderId: string): Promise<void> {
+  initFirebase();
+  if (isFirebaseActive()) {
+    deleteOrderFromFirestore(orderId).catch((err) =>
+      console.error('[Firestore] Erro ao excluir pedido:', err)
+    );
+  }
+  inMemoryOrders = inMemoryOrders.filter((o) => o.id !== orderId);
+  saveOfflineCacheOrders(inMemoryOrders);
+  broadcastEventLocally({ type: 'ORDER_DELETED' });
 }
 
 export async function uploadKnifePhoto(base64Data: string): Promise<string> {

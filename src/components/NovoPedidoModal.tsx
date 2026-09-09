@@ -135,7 +135,7 @@ export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
     try {
       const compressedList: string[] = [];
       for (const file of files) {
-        const compressed = await compressImage(file, 1280, 0.85);
+        const compressed = await compressImage(file, 800, 0.72);
         compressedList.push(compressed);
       }
       setPhotos((prev) => [...prev, ...compressedList]);

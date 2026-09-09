@@ -7,6 +7,7 @@ import {
   deliverOrder,
   subscribeToRealTimeEvents,
 } from './services/api';
+import { onPermissionErrorChange } from './services/firebase';
 import { playNotificationChime } from './utils/dateUtils';
 import { Header } from './components/Header';
 import { LoginScreen } from './components/LoginScreen';
@@ -47,12 +48,23 @@ export default function App() {
   const [role, setRole] = useState<UserRole | null>(() => getInitialRole());
   const [orders, setOrders] = useState<Order[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [hasPermissionError, setHasPermissionError] = useState(false);
+  const [copiedRule, setCopiedRule] = useState(false);
+
+  // Modals & Popups
   const [isNovoPedidoOpen, setIsNovoPedidoOpen] = useState(false);
   const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
   const [photoModalList, setPhotoModalList] = useState<string[]>([]);
   const [photoModalIndex, setPhotoModalIndex] = useState<number>(0);
   const [photoCustomerName, setPhotoCustomerName] = useState<string | undefined>(undefined);
   const [newOrderAlert, setNewOrderAlert] = useState<Order | null>(null);
+
+  // Escuta status de permissão das Regras do Firebase
+  useEffect(() => {
+    return onPermissionErrorChange((isError) => {
+      setHasPermissionError(isError);
+    });
+  }, []);
 
   // Set role, persist in session & sync with URL
   const handleSelectRole = (newRole: UserRole) => {
@@ -226,6 +238,48 @@ export default function App() {
         onOpenInstall={() => setIsInstallModalOpen(true)}
         isConnected={isConnected}
       />
+
+      {/* Alerta amigável de regras do Firebase se as permissões estiverem bloqueadas */}
+      {hasPermissionError && (
+        <div className="max-w-2xl mx-auto w-full px-3 pt-3">
+          <div className="p-4 rounded-2xl bg-amber-50 border-2 border-amber-500 shadow-md text-stone-900 space-y-2.5">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">⚠️</span>
+                <h4 className="font-black text-sm uppercase text-amber-950">
+                  Ação no Firebase Console (Permissão Bloqueada)
+                </h4>
+              </div>
+              <button
+                onClick={() => setHasPermissionError(false)}
+                className="text-stone-400 hover:text-stone-700 text-sm font-bold px-1.5 py-0.5 rounded cursor-pointer"
+                title="Dispensar aviso"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="text-xs text-stone-700 leading-relaxed">
+              O Firebase retornou <strong>Missing or insufficient permissions</strong>. Para liberar o acesso aos pedidos na coleção <strong>pedidosfronteira</strong>:
+              acesse o <a href="https://console.firebase.google.com/" target="_blank" rel="noopener noreferrer" className="font-bold underline text-amber-900">Firebase Console</a> &gt; <strong>Firestore Database</strong> &gt; aba <strong>Regras (Rules)</strong>, cole a regra abaixo e clique no botão azul <strong>Publicar</strong>.
+            </p>
+            <div className="bg-stone-900 text-amber-300 p-2.5 rounded-xl font-mono text-[11px] flex items-center justify-between gap-2">
+              <code className="truncate">match /&#123;document=**&#125; &#123; allow read, write: if true; &#125;</code>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(
+                    "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if true;\n    }\n  }\n}"
+                  );
+                  setCopiedRule(true);
+                  setTimeout(() => setCopiedRule(false), 3000);
+                }}
+                className="flex-shrink-0 px-2.5 py-1 bg-amber-500 text-stone-950 font-black rounded-lg text-xs hover:bg-amber-400 active:scale-95 transition-all cursor-pointer"
+              >
+                {copiedRule ? '✓ COPIADO!' : 'COPIAR REGRA'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main View Container */}
       <main className="flex-1">

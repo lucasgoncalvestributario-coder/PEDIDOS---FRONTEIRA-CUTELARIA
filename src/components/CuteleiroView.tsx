@@ -87,9 +87,9 @@ export const CuteleiroView: React.FC<CuteleiroViewProps> = ({
 
   const handleConfirmReady = async (orderId: string) => {
     setIsProcessing(true);
+    setConfirmingOrderId(null);
     try {
       await onMarkOrderReady(orderId);
-      setConfirmingOrderId(null);
     } catch (err) {
       console.error(err);
     } finally {
