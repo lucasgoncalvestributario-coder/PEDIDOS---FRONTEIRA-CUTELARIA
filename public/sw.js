@@ -12,7 +12,15 @@ const PRECACHE_URLS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))
+    caches.open(CACHE_NAME).then(async (cache) => {
+      for (const url of PRECACHE_URLS) {
+        try {
+          await cache.add(url);
+        } catch {
+          // Ignore individual precache failures to ensure SW installs smoothly
+        }
+      }
+    })
   );
   self.skipWaiting();
 });

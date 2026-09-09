@@ -12,17 +12,33 @@ export function usePWAInstall() {
   const [isAndroid, setIsAndroid] = useState(false);
 
   useEffect(() => {
-    // Check if already running in standalone/installed mode
-    const isStandalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      (window.navigator as unknown as { standalone?: boolean }).standalone === true ||
-      document.referrer.includes('android-app://');
+    // Safely check if already running in standalone/installed mode
+    let isStandalone = false;
+    try {
+      isStandalone =
+        (typeof window !== 'undefined' &&
+          typeof window.matchMedia === 'function' &&
+          window.matchMedia('(display-mode: standalone)').matches) ||
+        (typeof navigator !== 'undefined' &&
+          (navigator as unknown as { standalone?: boolean }).standalone === true) ||
+        (typeof document !== 'undefined' &&
+          typeof document.referrer === 'string' &&
+          document.referrer.includes('android-app://'));
+    } catch {
+      isStandalone = false;
+    }
 
     setIsInstalled(isStandalone);
 
-    const ua = window.navigator.userAgent.toLowerCase();
-    const iosDevice = /iphone|ipad|ipod/.test(ua);
-    const androidDevice = /android/.test(ua);
+    let iosDevice = false;
+    let androidDevice = false;
+    try {
+      const ua = (typeof navigator !== 'undefined' ? navigator.userAgent : '').toLowerCase();
+      iosDevice = /iphone|ipad|ipod/.test(ua);
+      androidDevice = /android/.test(ua);
+    } catch {
+      // ignore
+    }
 
     setIsIOS(iosDevice);
     setIsAndroid(androidDevice);

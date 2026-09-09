@@ -16,13 +16,35 @@ import { NovoPedidoModal } from './components/NovoPedidoModal';
 import { PhotoViewerModal } from './components/PhotoViewerModal';
 import { InstallAppModal } from './components/InstallAppModal';
 
-export default function App() {
-  const [role, setRole] = useState<UserRole | null>(() => {
-    // Check if role was previously selected in this browser session
-    const saved = sessionStorage.getItem('cutelaria_role') as UserRole | null;
-    return saved === 'LOJA' || saved === 'CUTELEIRO' ? saved : null;
-  });
+function getInitialRole(): UserRole | null {
+  try {
+    if (typeof window === 'undefined') return null;
 
+    // 1. Check URL path (e.g. /loja or /cuteleiro)
+    const pathname = window.location.pathname.toLowerCase();
+    if (pathname.includes('/loja')) return 'LOJA';
+    if (pathname.includes('/cuteleiro')) return 'CUTELEIRO';
+
+    // 2. Check query parameter (e.g. ?role=LOJA)
+    const search = new URLSearchParams(window.location.search);
+    const roleParam = search.get('role')?.toUpperCase();
+    if (roleParam === 'LOJA' || roleParam === 'CUTELEIRO') {
+      return roleParam as UserRole;
+    }
+
+    // 3. Check sessionStorage or localStorage
+    const saved = sessionStorage.getItem('cutelaria_role') || localStorage.getItem('cutelaria_role');
+    if (saved === 'LOJA' || saved === 'CUTELEIRO') {
+      return saved as UserRole;
+    }
+  } catch {
+    // Ignore storage/url errors
+  }
+  return null;
+}
+
+export default function App() {
+  const [role, setRole] = useState<UserRole | null>(() => getInitialRole());
   const [orders, setOrders] = useState<Order[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isNovoPedidoOpen, setIsNovoPedidoOpen] = useState(false);
@@ -32,16 +54,34 @@ export default function App() {
   const [photoCustomerName, setPhotoCustomerName] = useState<string | undefined>(undefined);
   const [newOrderAlert, setNewOrderAlert] = useState<Order | null>(null);
 
-  // Set role and persist in session
+  // Set role, persist in session & sync with URL
   const handleSelectRole = (newRole: UserRole) => {
     setRole(newRole);
-    sessionStorage.setItem('cutelaria_role', newRole);
+    try {
+      sessionStorage.setItem('cutelaria_role', newRole);
+      localStorage.setItem('cutelaria_role', newRole);
+      const targetPath = newRole === 'LOJA' ? '/loja' : '/cuteleiro';
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState({ role: newRole }, '', targetPath);
+      }
+    } catch {
+      // ignore
+    }
   };
 
   const handleSwitchRole = () => {
     const nextRole = role === 'LOJA' ? 'CUTELEIRO' : 'LOJA';
     handleSelectRole(nextRole);
   };
+
+  // Sync with browser back/forward buttons
+  useEffect(() => {
+    const handlePopState = () => {
+      setRole(getInitialRole());
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Load initial orders
   const loadInitialData = useCallback(async () => {
@@ -72,13 +112,15 @@ export default function App() {
     };
   }, [loadInitialData]);
 
-  // Subscribe to real-time events (SSE)
+  // Subscribe to real-time events (SSE / BroadcastChannel)
   useEffect(() => {
     const unsubscribe = subscribeToRealTimeEvents((event) => {
-      console.log('[REAL-TIME EVENT RECEBIDO]:', event);
-
       if (event.type === 'CONNECTED') {
         setIsConnected(true);
+      }
+
+      if (event.type === 'ORDERS_SYNCED') {
+        loadInitialData();
       }
 
       if (event.type === 'ORDER_CREATED' && event.order) {
@@ -98,7 +140,7 @@ export default function App() {
           try {
             new Notification('NOVO PEDIDO RECEBIDO', {
               body: `Faca de ${createdOrder.customerName} enviada pela Loja!`,
-              icon: '/logo.png',
+              icon: '/apple-touch-icon.png',
             });
           } catch {
             // ignore
@@ -125,12 +167,16 @@ export default function App() {
     return () => {
       unsubscribe();
     };
-  }, []);
+  }, [loadInitialData]);
 
   // Request browser notification permission once
   useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().catch(() => {});
+    try {
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
+    } catch {
+      // ignore
     }
   }, []);
 
