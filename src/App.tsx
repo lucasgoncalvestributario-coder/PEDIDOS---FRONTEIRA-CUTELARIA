@@ -9,6 +9,11 @@ import {
 } from './services/api';
 import { onPermissionErrorChange } from './services/firebase';
 import { playNotificationChime } from './utils/dateUtils';
+import {
+  notifyNewOrder,
+  notifyOrderReady,
+  requestNotificationPermission,
+} from './services/notifications';
 import { Header } from './components/Header';
 import { LoginScreen } from './components/LoginScreen';
 import { LojaView } from './components/LojaView';
@@ -16,6 +21,7 @@ import { CuteleiroView } from './components/CuteleiroView';
 import { NovoPedidoModal } from './components/NovoPedidoModal';
 import { PhotoViewerModal } from './components/PhotoViewerModal';
 import { InstallAppModal } from './components/InstallAppModal';
+import { NotificationModal } from './components/NotificationModal';
 
 function getInitialRole(): UserRole | null {
   try {
@@ -54,6 +60,7 @@ export default function App() {
   // Modals & Popups
   const [isNovoPedidoOpen, setIsNovoPedidoOpen] = useState(false);
   const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
   const [photoModalList, setPhotoModalList] = useState<string[]>([]);
   const [photoModalIndex, setPhotoModalIndex] = useState<number>(0);
   const [photoCustomerName, setPhotoCustomerName] = useState<string | undefined>(undefined);
@@ -151,17 +158,8 @@ export default function App() {
         playNotificationChime('new_order');
         setNewOrderAlert(createdOrder);
 
-        // Native browser notification if allowed
-        if ('Notification' in window && Notification.permission === 'granted') {
-          try {
-            new Notification('NOVO PEDIDO RECEBIDO', {
-              body: `Faca de ${createdOrder.customerName} enviada pela Loja!`,
-              icon: '/apple-touch-icon.png',
-            });
-          } catch {
-            // ignore
-          }
-        }
+        // Dispara notificação nativa fixa no sistema (Android/iOS/PC) com logo oficial
+        notifyNewOrder(createdOrder);
       }
 
       if (event.type === 'ORDER_READY' && event.order) {
@@ -170,6 +168,9 @@ export default function App() {
           prev.map((o) => (o.id === readyOrder.id ? readyOrder : o))
         );
         playNotificationChime('ready');
+
+        // Dispara notificação nativa para a loja saber que está pronto
+        notifyOrderReady(readyOrder);
       }
 
       if (event.type === 'ORDER_DELIVERED' && event.order) {
@@ -236,6 +237,7 @@ export default function App() {
         currentRole={role}
         onSwitchRole={handleSwitchRole}
         onOpenInstall={() => setIsInstallModalOpen(true)}
+        onOpenNotifications={() => setIsNotificationModalOpen(true)}
         isConnected={isConnected}
       />
 
@@ -325,6 +327,14 @@ export default function App() {
         isOpen={isInstallModalOpen}
         onClose={() => setIsInstallModalOpen(false)}
       />
+
+      {/* NOTIFICATION PERMISSION MODAL */}
+      <NotificationModal
+        isOpen={isNotificationModalOpen}
+        onClose={() => setIsNotificationModalOpen(false)}
+        onPermissionUpdated={() => {}}
+      />
     </div>
   );
 }
+

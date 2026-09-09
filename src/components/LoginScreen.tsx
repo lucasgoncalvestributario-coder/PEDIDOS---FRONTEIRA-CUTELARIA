@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserRole } from '../types';
-import { Store, Hammer, ShieldCheck, Download, Smartphone } from 'lucide-react';
+import { Store, Hammer, ShieldCheck, Download, Bell, CheckCircle2 } from 'lucide-react';
 import { InstallAppModal } from './InstallAppModal';
+import { NotificationModal } from './NotificationModal';
+import { getNotificationPermission } from '../services/notifications';
 
 interface LoginScreenProps {
   onSelectRole: (role: UserRole) => void;
@@ -9,6 +11,12 @@ interface LoginScreenProps {
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({ onSelectRole }) => {
   const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
+  const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
+  const [notificationStatus, setNotificationStatus] = useState<NotificationPermission | 'unsupported'>('default');
+
+  useEffect(() => {
+    setNotificationStatus(getNotificationPermission());
+  }, []);
 
   return (
     <div className="min-h-screen bg-stone-100 flex flex-col items-center justify-between p-4 py-6 max-w-lg mx-auto">
@@ -33,31 +41,91 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSelectRole }) => {
         </p>
       </div>
 
-      {/* Prominent Option to Install App on Android (APK / Play Store) or iPhone */}
-      <div className="w-full my-3">
+      {/* Prominent Action Bar: Ativar Notificações + Instalar App */}
+      <div className="w-full my-3 space-y-2.5">
+        {/* BOTÃO CLARO E VISÍVEL: ATIVAR NOTIFICAÇÕES */}
         <button
-          id="btn-instalar-app-inicio"
-          onClick={() => setIsInstallModalOpen(true)}
-          className="w-full p-4 rounded-2xl bg-stone-900 hover:bg-stone-800 active:scale-[0.98] border-2 border-amber-500 shadow-md flex items-center justify-between gap-3 text-left transition-all group cursor-pointer"
+          id="btn-ativar-notificacoes-inicio"
+          onClick={() => setIsNotificationModalOpen(true)}
+          className={`w-full p-3.5 rounded-2xl border-2 shadow-md flex items-center justify-between gap-3 text-left transition-all group cursor-pointer ${
+            notificationStatus === 'granted'
+              ? 'bg-stone-900 border-emerald-500 hover:bg-stone-800'
+              : 'bg-amber-500 border-amber-600 hover:bg-amber-400 active:scale-[0.98]'
+          }`}
         >
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-amber-500 text-stone-950 flex items-center justify-center flex-shrink-0 shadow-sm group-hover:scale-105 transition-transform">
-              <Download className="w-6 h-6 stroke-[2.5]" />
+            <div
+              className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm transition-transform group-hover:scale-105 ${
+                notificationStatus === 'granted'
+                  ? 'bg-emerald-500 text-stone-950'
+                  : 'bg-stone-950 text-amber-400'
+              }`}
+            >
+              {notificationStatus === 'granted' ? (
+                <CheckCircle2 className="w-6 h-6 stroke-[2.5]" />
+              ) : (
+                <Bell className="w-6 h-6 stroke-[2.5] animate-bounce" />
+              )}
             </div>
             <div>
-              <div className="text-sm sm:text-base font-black text-amber-400 uppercase tracking-tight flex items-center gap-1.5">
-                <span>INSTALAR APLICATIVO NO CELULAR</span>
+              <div
+                className={`text-sm sm:text-base font-black uppercase tracking-tight flex items-center gap-1.5 ${
+                  notificationStatus === 'granted' ? 'text-emerald-400' : 'text-stone-950'
+                }`}
+              >
+                <span>
+                  {notificationStatus === 'granted'
+                    ? 'NOTIFICAÇÕES ATIVAS NA BARRA'
+                    : 'ATIVAR NOTIFICAÇÕES NO CELULAR'}
+                </span>
               </div>
-              <div className="text-xs text-stone-300 font-medium leading-tight">
-                Android (como na Play Store/APK) ou iPhone (com a logo da marca)
+              <div
+                className={`text-xs font-medium leading-tight ${
+                  notificationStatus === 'granted' ? 'text-stone-300' : 'text-stone-900/90'
+                }`}
+              >
+                {notificationStatus === 'granted'
+                  ? 'Você recebe alertas fixos de novos pedidos e lâminas prontas'
+                  : 'Receba som, vibração e aviso fixo na barra do aparelho'}
               </div>
             </div>
           </div>
-          <span className="text-[11px] bg-amber-500 text-stone-950 font-black px-2.5 py-1 rounded-lg uppercase tracking-wider flex-shrink-0">
+          <span
+            className={`text-[11px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider flex-shrink-0 shadow-sm ${
+              notificationStatus === 'granted'
+                ? 'bg-emerald-500 text-stone-950'
+                : 'bg-stone-950 text-amber-400'
+            }`}
+          >
+            {notificationStatus === 'granted' ? 'ATIVO' : 'ATIVAR'}
+          </span>
+        </button>
+
+        {/* Instalar App no Celular */}
+        <button
+          id="btn-instalar-app-inicio"
+          onClick={() => setIsInstallModalOpen(true)}
+          className="w-full p-3.5 rounded-2xl bg-stone-900 hover:bg-stone-800 active:scale-[0.98] border border-stone-700 shadow-sm flex items-center justify-between gap-3 text-left transition-all group cursor-pointer"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-stone-800 text-amber-400 flex items-center justify-center flex-shrink-0 shadow-sm group-hover:scale-105 transition-transform">
+              <Download className="w-5 h-5 stroke-[2.5]" />
+            </div>
+            <div>
+              <div className="text-sm font-black text-white uppercase tracking-tight flex items-center gap-1.5">
+                <span>INSTALAR APLICATIVO NO CELULAR</span>
+              </div>
+              <div className="text-xs text-stone-400 font-medium leading-tight">
+                Android ou iPhone com ícone oficial na tela
+              </div>
+            </div>
+          </div>
+          <span className="text-[11px] bg-stone-800 text-amber-400 border border-stone-700 font-black px-2.5 py-1 rounded-lg uppercase tracking-wider flex-shrink-0">
             BAIXAR
           </span>
         </button>
       </div>
+
 
       {/* Center section with the TWO GIANT BUTTONS */}
       <div className="w-full flex flex-col gap-4 my-2">
@@ -109,7 +177,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSelectRole }) => {
         isOpen={isInstallModalOpen}
         onClose={() => setIsInstallModalOpen(false)}
       />
+
+      {/* Notification Modal */}
+      <NotificationModal
+        isOpen={isNotificationModalOpen}
+        onClose={() => setIsNotificationModalOpen(false)}
+        onPermissionUpdated={(perm) => setNotificationStatus(perm)}
+      />
     </div>
   );
 };
+
 
