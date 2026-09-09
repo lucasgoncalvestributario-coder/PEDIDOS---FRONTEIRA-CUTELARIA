@@ -1,5 +1,13 @@
 /// <reference types="vite/client" />
 import { Order, IntegrationLog } from '../types';
+import {
+  initFirebase,
+  isFirebaseActive,
+  saveOrderToFirestore,
+  updateOrderReadyInFirestore,
+  updateOrderDeliveredInFirestore,
+  subscribeFirestoreOrders,
+} from './firebase';
 
 const metaEnv = (import.meta as unknown as { env?: Record<string, string> }).env;
 const API_BASE = (metaEnv?.VITE_API_URL || '').replace(/\/$/, '');
@@ -54,7 +62,7 @@ const SEED_ORDERS: Order[] = [
 // Helper: safe local storage operations
 const LOCAL_STORAGE_KEY = 'cutelaria_orders_cache_v2';
 
-function getLocalOrders(): Order[] {
+export function getLocalOrders(): Order[] {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (raw) {
@@ -69,7 +77,7 @@ function getLocalOrders(): Order[] {
   return SEED_ORDERS;
 }
 
-function saveLocalOrders(orders: Order[]) {
+export function saveLocalOrders(orders: Order[]) {
   try {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(orders));
   } catch (e) {
@@ -83,7 +91,7 @@ function isJsonResponse(res: Response): boolean {
   return contentType.includes('application/json');
 }
 
-// BroadcastChannel for cross-tab sync when in static/offline mode
+// BroadcastChannel for cross-tab sync
 let realtimeChannel: BroadcastChannel | null = null;
 try {
   if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
@@ -149,42 +157,27 @@ export async function compressImage(file: File, maxDimension = 1280, quality = 0
 }
 
 export async function fetchOrders(): Promise<Order[]> {
-  try {
-    const res = await fetch(`${API_BASE}/api/orders`);
-    if (res.ok && isJsonResponse(res)) {
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        saveLocalOrders(data);
-        return data;
+  // 1. If backend API is configured and responds, use it
+  if (API_BASE) {
+    try {
+      const res = await fetch(`${API_BASE}/api/orders`);
+      if (res.ok && isJsonResponse(res)) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          saveLocalOrders(data);
+          return data;
+        }
       }
+    } catch (err) {
+      console.warn('[API] Server fetch failed, falling back:', err);
     }
-  } catch (err) {
-    console.warn('[API] Server fetch failed or not running, falling back to storage:', err);
   }
 
-  // Fallback for Netlify / offline / static deploy
+  // 2. Return cached orders (populated from Firestore or local storage)
   return getLocalOrders();
 }
 
 export async function createOrder(orderData: Partial<Order>): Promise<Order> {
-  try {
-    const res = await fetch(`${API_BASE}/api/orders`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(orderData),
-    });
-    if (res.ok && isJsonResponse(res)) {
-      const created = await res.json();
-      const current = getLocalOrders();
-      saveLocalOrders([created, ...current.filter((o) => o.id !== created.id)]);
-      broadcastEventLocally({ type: 'ORDER_CREATED', order: created });
-      return created;
-    }
-  } catch (err) {
-    console.warn('[API] Server create failed, saving locally:', err);
-  }
-
-  // Local fallback creation
   const current = getLocalOrders();
   const nextNumber = current.length > 0 ? Math.max(...current.map((o) => o.orderNumber || 0)) + 1 : 101;
   const newId = `PED-${nextNumber}`;
@@ -206,7 +199,28 @@ export async function createOrder(orderData: Partial<Order>): Promise<Order> {
     updatedAt: new Date().toISOString(),
   };
 
-  const updatedOrders = [newOrder, ...current];
+  // 1. Salvar no Firestore (Sincronização global para todos os celulares)
+  try {
+    await saveOrderToFirestore(newOrder);
+  } catch (err) {
+    console.warn('[Firebase] Erro ao salvar pedido no Firestore:', err);
+  }
+
+  // 2. Tentar salvar no servidor backend se existir
+  if (API_BASE) {
+    try {
+      await fetch(`${API_BASE}/api/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newOrder),
+      });
+    } catch (err) {
+      console.warn('[API] Server create failed:', err);
+    }
+  }
+
+  // 3. Atualizar cache local e disparar evento
+  const updatedOrders = [newOrder, ...current.filter((o) => o.id !== newOrder.id)];
   saveLocalOrders(updatedOrders);
   broadcastEventLocally({ type: 'ORDER_CREATED', order: newOrder });
 
@@ -214,100 +228,144 @@ export async function createOrder(orderData: Partial<Order>): Promise<Order> {
 }
 
 export async function markOrderReady(orderId: string): Promise<Order> {
-  try {
-    const res = await fetch(`${API_BASE}/api/orders/${orderId}/ready`, {
-      method: 'PUT',
-    });
-    if (res.ok && isJsonResponse(res)) {
-      const updated = await res.json();
-      const current = getLocalOrders();
-      saveLocalOrders(current.map((o) => (o.id === updated.id ? updated : o)));
-      broadcastEventLocally({ type: 'ORDER_READY', order: updated });
-      return updated;
-    }
-  } catch (err) {
-    console.warn('[API] Server markOrderReady failed, updating locally:', err);
-  }
-
   const current = getLocalOrders();
   const order = current.find((o) => o.id === orderId);
-  if (!order) {
-    throw new Error('Pedido não encontrado');
+  const now = new Date().toISOString();
+
+  const updated: Order = order
+    ? {
+        ...order,
+        status: 'PRONTA',
+        completedAt: now,
+        updatedAt: now,
+      }
+    : {
+        id: orderId,
+        orderNumber: 0,
+        customerName: '',
+        customerPhone: '',
+        services: [],
+        totalAmount: 0,
+        paidAmount: 0,
+        isFullyPaid: false,
+        deliveryDate: '',
+        photoUrl: '/apple-touch-icon.png',
+        status: 'PRONTA',
+        createdAt: now,
+        createdBy: 'LOJA',
+        completedAt: now,
+        updatedAt: now,
+      };
+
+  // 1. Atualizar no Firestore
+  try {
+    await updateOrderReadyInFirestore(orderId, now);
+  } catch (err) {
+    console.warn('[Firebase] Erro ao atualizar status no Firestore:', err);
   }
 
-  const updated: Order = {
-    ...order,
-    status: 'PRONTA',
-    completedAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
+  // 2. Tentar servidor backend se existir
+  if (API_BASE) {
+    try {
+      await fetch(`${API_BASE}/api/orders/${orderId}/ready`, {
+        method: 'PUT',
+      });
+    } catch (err) {
+      console.warn('[API] Server markOrderReady failed:', err);
+    }
+  }
 
-  saveLocalOrders(current.map((o) => (o.id === updated.id ? updated : o)));
+  // 3. Atualizar localmente
+  saveLocalOrders(current.map((o) => (o.id === orderId ? updated : o)));
   broadcastEventLocally({ type: 'ORDER_READY', order: updated });
 
   return updated;
 }
 
 export async function deliverOrder(orderId: string): Promise<Order> {
-  try {
-    const res = await fetch(`${API_BASE}/api/orders/${orderId}/deliver`, {
-      method: 'PUT',
-    });
-    if (res.ok && isJsonResponse(res)) {
-      const updated = await res.json();
-      const current = getLocalOrders();
-      saveLocalOrders(current.map((o) => (o.id === updated.id ? updated : o)));
-      broadcastEventLocally({ type: 'ORDER_DELIVERED', order: updated });
-      return updated;
-    }
-  } catch (err) {
-    console.warn('[API] Server deliverOrder failed, updating locally:', err);
-  }
-
   const current = getLocalOrders();
   const order = current.find((o) => o.id === orderId);
-  if (!order) {
-    throw new Error('Pedido não encontrado');
+  const now = new Date().toISOString();
+
+  const updated: Order = order
+    ? {
+        ...order,
+        status: 'ENTREGUE',
+        deliveredAt: now,
+        updatedAt: now,
+      }
+    : {
+        id: orderId,
+        orderNumber: 0,
+        customerName: '',
+        customerPhone: '',
+        services: [],
+        totalAmount: 0,
+        paidAmount: 0,
+        isFullyPaid: true,
+        deliveryDate: '',
+        photoUrl: '/apple-touch-icon.png',
+        status: 'ENTREGUE',
+        createdAt: now,
+        createdBy: 'LOJA',
+        deliveredAt: now,
+        updatedAt: now,
+      };
+
+  // 1. Atualizar no Firestore
+  try {
+    await updateOrderDeliveredInFirestore(orderId, now);
+  } catch (err) {
+    console.warn('[Firebase] Erro ao atualizar entrega no Firestore:', err);
   }
 
-  const updated: Order = {
-    ...order,
-    status: 'ENTREGUE',
-    deliveredAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
+  // 2. Tentar servidor backend se existir
+  if (API_BASE) {
+    try {
+      await fetch(`${API_BASE}/api/orders/${orderId}/deliver`, {
+        method: 'PUT',
+      });
+    } catch (err) {
+      console.warn('[API] Server deliverOrder failed:', err);
+    }
+  }
 
-  saveLocalOrders(current.map((o) => (o.id === updated.id ? updated : o)));
+  // 3. Atualizar localmente
+  saveLocalOrders(current.map((o) => (o.id === orderId ? updated : o)));
   broadcastEventLocally({ type: 'ORDER_DELIVERED', order: updated });
 
   return updated;
 }
 
 export async function uploadKnifePhoto(base64Data: string): Promise<string> {
-  try {
-    const res = await fetch(`${API_BASE}/api/upload`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageBase64: base64Data }),
-    });
-    if (res.ok && isJsonResponse(res)) {
-      const data = await res.json();
-      return data.url;
+  if (API_BASE) {
+    try {
+      const res = await fetch(`${API_BASE}/api/upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: base64Data }),
+      });
+      if (res.ok && isJsonResponse(res)) {
+        const data = await res.json();
+        return data.url;
+      }
+    } catch (err) {
+      console.warn('Upload endpoint fallback to base64 data:', err);
     }
-  } catch (err) {
-    console.warn('Upload endpoint fallback to base64 data:', err);
   }
   return base64Data;
 }
 
 export async function fetchLogs(): Promise<IntegrationLog[]> {
-  try {
-    const res = await fetch(`${API_BASE}/api/logs`);
-    if (res.ok && isJsonResponse(res)) {
-      return res.json();
+  if (API_BASE) {
+    try {
+      const res = await fetch(`${API_BASE}/api/logs`);
+      if (res.ok && isJsonResponse(res)) {
+        return res.json();
+      }
+    } catch {
+      // fallback
     }
-  } catch {
-    // fallback
   }
   return [];
 }
@@ -315,18 +373,54 @@ export async function fetchLogs(): Promise<IntegrationLog[]> {
 export type RealTimeCallback = (event: {
   type: string;
   order?: Order;
+  orders?: Order[];
   log?: IntegrationLog;
   message?: string;
 }) => void;
 
 export function subscribeToRealTimeEvents(callback: RealTimeCallback): () => void {
   let eventSource: EventSource | null = null;
+  let unsubscribeFirestore: (() => void) | null = null;
   let isClosed = false;
 
-  // 1. Immediately signal connected so user knows the interface is ready
+  // 1. Sinaliza conexão pronta
   callback({ type: 'CONNECTED' });
 
-  // 2. Listen to BroadcastChannel for local/multi-tab events
+  // 2. Inicializar e Assinar Firestore (Tempo Real entre todos os dispositivos com mínimo de leituras)
+  try {
+    initFirebase();
+    if (isFirebaseActive()) {
+      unsubscribeFirestore = subscribeFirestoreOrders((remoteOrders) => {
+        if (!isClosed && Array.isArray(remoteOrders)) {
+          const previous = getLocalOrders();
+          saveLocalOrders(remoteOrders);
+
+          // Verificar se houve novo pedido
+          if (previous.length > 0 && remoteOrders.length > previous.length) {
+            const newest = remoteOrders[0];
+            const alreadyExisted = previous.some((p) => p.id === newest.id);
+            if (!alreadyExisted) {
+              callback({ type: 'ORDER_CREATED', order: newest });
+            }
+          }
+
+          // Verificar se houve pedido que ficou pronto
+          for (const order of remoteOrders) {
+            const prev = previous.find((p) => p.id === order.id);
+            if (prev && prev.status === 'PENDENTE' && order.status === 'PRONTA') {
+              callback({ type: 'ORDER_READY', order });
+            }
+          }
+
+          callback({ type: 'ORDERS_SYNCED', orders: remoteOrders });
+        }
+      });
+    }
+  } catch (err) {
+    console.warn('[Realtime] Erro ao conectar Firestore:', err);
+  }
+
+  // 3. Ouvir BroadcastChannel para eventos na mesma aba ou abas locais
   const handleBroadcastMessage = (e: MessageEvent) => {
     if (e.data && typeof e.data === 'object') {
       callback(e.data);
@@ -337,13 +431,13 @@ export function subscribeToRealTimeEvents(callback: RealTimeCallback): () => voi
     realtimeChannel.addEventListener('message', handleBroadcastMessage);
   }
 
-  // 3. Listen to window storage event for cross-tab synchronization
+  // 4. Ouvir evento de storage para sincronização cross-tab
   const handleStorageEvent = (e: StorageEvent) => {
     if (e.key === LOCAL_STORAGE_KEY && e.newValue) {
       try {
         const parsed = JSON.parse(e.newValue);
         if (Array.isArray(parsed)) {
-          callback({ type: 'ORDERS_SYNCED', message: 'Sincronizado via armazenamento' });
+          callback({ type: 'ORDERS_SYNCED', orders: parsed });
         }
       } catch {
         // ignore
@@ -352,41 +446,43 @@ export function subscribeToRealTimeEvents(callback: RealTimeCallback): () => voi
   };
   window.addEventListener('storage', handleStorageEvent);
 
-  // 4. Try SSE backend connection if available
-  function connectSSE() {
-    if (isClosed) return;
-    try {
-      eventSource = new EventSource(`${API_BASE}/api/events`);
+  // 5. SSE se houver backend local
+  if (API_BASE) {
+    function connectSSE() {
+      if (isClosed) return;
+      try {
+        eventSource = new EventSource(`${API_BASE}/api/events`);
 
-      eventSource.onmessage = (e) => {
-        try {
-          const data = JSON.parse(e.data);
-          callback(data);
-        } catch {
-          // ignore non-json
-        }
-      };
+        eventSource.onmessage = (e) => {
+          try {
+            const data = JSON.parse(e.data);
+            callback(data);
+          } catch {
+            // ignore non-json
+          }
+        };
 
-      eventSource.onerror = () => {
-        if (eventSource) {
-          eventSource.close();
-          eventSource = null;
-        }
-        // If SSE fails (e.g. Netlify static hosting), back off gently without crashing
-        if (!isClosed) {
-          setTimeout(connectSSE, 15000);
-        }
-      };
-    } catch {
-      // Backend not running SSE, fallback to local broadcast mode
+        eventSource.onerror = () => {
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+          if (!isClosed) {
+            setTimeout(connectSSE, 15000);
+          }
+        };
+      } catch {
+        // Backend not running SSE
+      }
     }
+    connectSSE();
   }
-
-  // Attempt SSE connection in background
-  connectSSE();
 
   return () => {
     isClosed = true;
+    if (unsubscribeFirestore) {
+      unsubscribeFirestore();
+    }
     if (eventSource) {
       eventSource.close();
     }

@@ -120,7 +120,11 @@ export default function App() {
       }
 
       if (event.type === 'ORDERS_SYNCED') {
-        loadInitialData();
+        if (event.orders && Array.isArray(event.orders)) {
+          setOrders(event.orders);
+        } else {
+          loadInitialData();
+        }
       }
 
       if (event.type === 'ORDER_CREATED' && event.order) {
