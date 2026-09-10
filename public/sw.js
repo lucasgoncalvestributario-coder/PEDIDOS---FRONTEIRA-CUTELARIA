@@ -102,6 +102,25 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
+// Evento para mensagens do cliente (ex: disparar notificação diretamente pelo Service Worker)
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
+    const { title, options } = event.data;
+    event.waitUntil(
+      self.registration.showNotification(title || 'Fronteira Cutelaria', {
+        body: options?.body || '',
+        icon: options?.icon || '/pwa-192x192.png',
+        badge: options?.badge || '/pwa-192x192.png',
+        tag: options?.tag || 'cutelaria-alerta',
+        vibrate: [250, 100, 250, 100, 350],
+        requireInteraction: options?.requireInteraction ?? true,
+        renotify: options?.renotify ?? true,
+        data: options?.data || {},
+      })
+    );
+  }
+});
+
 // Evento para push notification
 self.addEventListener('push', (event) => {
   let data = { title: 'Fronteira Cutelaria', body: 'Novo alerta de pedido!' };

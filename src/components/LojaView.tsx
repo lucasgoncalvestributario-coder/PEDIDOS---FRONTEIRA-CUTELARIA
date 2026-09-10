@@ -5,6 +5,7 @@ import {
   Plus,
   Search,
   CheckCircle,
+  CheckCircle2,
   Phone,
   Scissors,
   DollarSign,
@@ -12,12 +13,15 @@ import {
   MessageCircle,
   Check,
   Send,
+  History,
+  Trash2,
 } from 'lucide-react';
 
 interface LojaViewProps {
   orders: Order[];
   onOpenNovoPedido: () => void;
   onDeliverOrder: (orderId: string) => Promise<void>;
+  onDeleteOrder?: (orderId: string) => Promise<void>;
   onOpenPhoto: (photos: string[] | string, initialIndex?: number, customerName?: string) => void;
 }
 
@@ -27,17 +31,23 @@ export const LojaView: React.FC<LojaViewProps> = ({
   orders,
   onOpenNovoPedido,
   onDeliverOrder,
+  onDeleteOrder,
   onOpenPhoto,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterTab, setFilterTab] = useState<'TODOS' | 'PENDENTES' | 'PRONTOS'>('TODOS');
+  const [filterTab, setFilterTab] = useState<'TODOS' | 'PENDENTES' | 'PRONTOS' | 'HISTORICO'>('TODOS');
   const [processingOrderId, setProcessingOrderId] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-  // Filter out delivered orders from active store view
+  // Orders separation
   const activeOrders = orders.filter((o) => o.status !== 'ENTREGUE');
+  const deliveredOrders = orders.filter((o) => o.status === 'ENTREGUE');
 
-  const filteredOrders = activeOrders.filter((o) => {
+  const baseOrders = filterTab === 'HISTORICO' ? deliveredOrders : activeOrders;
+
+  const filteredOrders = baseOrders.filter((o) => {
     // Tab filter
     if (filterTab === 'PENDENTES' && o.status !== 'PENDENTE' && o.status !== 'EM PRODUÇÃO') {
       return false;
@@ -62,6 +72,24 @@ export const LojaView: React.FC<LojaViewProps> = ({
 
   const readyCount = activeOrders.filter((o) => o.status === 'PRONTA').length;
   const pendingCount = activeOrders.filter((o) => o.status === 'PENDENTE' || o.status === 'EM PRODUÇÃO').length;
+
+  const handleConfirmDelete = async () => {
+    if (!orderToDelete) return;
+    setIsDeleting(true);
+    const orderNum = orderToDelete.orderNumber;
+    try {
+      if (onDeleteOrder) {
+        await onDeleteOrder(orderToDelete.id);
+      }
+      setFeedbackMessage(`Pedido #${orderNum} excluído com sucesso do histórico.`);
+      setTimeout(() => setFeedbackMessage(null), 4000);
+      setOrderToDelete(null);
+    } catch (err) {
+      console.error('Erro ao excluir pedido:', err);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // Build WhatsApp message script (STRICTLY WITHOUT EMOJIS)
   const getWhatsAppRedirectionUrl = (order: Order) => {
@@ -168,13 +196,36 @@ export const LojaView: React.FC<LojaViewProps> = ({
             PRONTOS ({readyCount})
           </button>
         </div>
+
+        {/* Botão de Histórico de Entregas */}
+        <button
+          id="btn-loja-historico"
+          onClick={() => setFilterTab(filterTab === 'HISTORICO' ? 'TODOS' : 'HISTORICO')}
+          className={`w-full py-2.5 px-3 rounded-xl flex items-center justify-between text-xs font-black uppercase tracking-wider transition-all border shadow-sm cursor-pointer ${
+            filterTab === 'HISTORICO'
+              ? 'bg-stone-900 text-amber-400 border-stone-950 ring-2 ring-amber-400/40'
+              : 'bg-stone-50 text-stone-700 border-stone-300 hover:bg-stone-100'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <History className="w-4 h-4 text-amber-500 stroke-[2.5]" />
+            <span>HISTÓRICO DE PEDIDOS ENTREGUES</span>
+          </div>
+          <span className="px-2 py-0.5 rounded-full font-mono font-bold bg-amber-500/20 text-amber-900 border border-amber-400/40">
+            {deliveredOrders.length}
+          </span>
+        </button>
       </div>
 
       {/* 3. ACTIVE ORDERS LIST AS BIG CARDS */}
       <div className="space-y-4">
         <div className="flex items-center justify-between text-xs font-black uppercase text-stone-600 px-1">
-          <span>PEDIDOS EM ANDAMENTO ({filteredOrders.length})</span>
-          {readyCount > 0 && (
+          <span>
+            {filterTab === 'HISTORICO'
+              ? `HISTÓRICO DE PEDIDOS ENTREGUES (${filteredOrders.length})`
+              : `PEDIDOS EM ANDAMENTO (${filteredOrders.length})`}
+          </span>
+          {filterTab !== 'HISTORICO' && readyCount > 0 && (
             <span className="text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-lg border border-emerald-300 font-bold">
               {readyCount} faca(s) pronta(s) para entregar
             </span>
@@ -236,7 +287,12 @@ export const LojaView: React.FC<LojaViewProps> = ({
 
                   {/* Status Badge */}
                   <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                    {isReady ? (
+                    {order.status === 'ENTREGUE' ? (
+                      <span className="px-3 py-1.5 rounded-xl bg-stone-900 text-emerald-400 font-black text-xs uppercase tracking-wider shadow-sm flex items-center gap-1 border border-emerald-500/50">
+                        <CheckCircle2 className="w-4 h-4" />
+                        ENTREGUE
+                      </span>
+                    ) : isReady ? (
                       <span className="px-3 py-1.5 rounded-xl bg-emerald-500 text-stone-950 font-black text-xs uppercase tracking-wider shadow-sm animate-pulse flex items-center gap-1">
                         <CheckCircle className="w-4 h-4" />
                         FACA PRONTA!
@@ -333,24 +389,29 @@ export const LojaView: React.FC<LojaViewProps> = ({
                 </div>
 
                 {/* Financial Info */}
-                {order.totalAmount > 0 && (
-                  <div className="mt-3 p-3 bg-amber-50 rounded-2xl border border-amber-200 flex items-center justify-between text-xs font-black uppercase">
-                    <span className="text-stone-700 flex items-center gap-1">
-                      <DollarSign className="w-4 h-4 text-amber-600" />
-                      VALOR COBRADO: {formatCurrency(order.totalAmount)}
+                <div className="mt-3 p-3.5 bg-amber-50 rounded-2xl border-2 border-amber-200 flex flex-wrap items-center justify-between gap-2 text-xs font-black uppercase">
+                  <span className="text-stone-800 flex items-center gap-1.5">
+                    <DollarSign className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                    VALOR COBRADO:{' '}
+                    <span className="font-mono text-base text-stone-950 font-black">
+                      {order.totalAmount > 0 ? formatCurrency(order.totalAmount) : 'R$ 0,00'}
                     </span>
-                    {order.isFullyPaid ? (
-                      <span className="text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-lg font-bold">
-                        JÁ PAGO TUDO
-                      </span>
-                    ) : (
-                      <span className="text-stone-800">
-                        ENTRADA: {formatCurrency(order.paidAmount)} | RESTA:{' '}
-                        {formatCurrency(Math.max(0, order.totalAmount - order.paidAmount))}
-                      </span>
-                    )}
-                  </div>
-                )}
+                  </span>
+                  {order.isFullyPaid ? (
+                    <span className="text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-xl font-bold border border-emerald-300">
+                      JÁ PAGO TUDO
+                    </span>
+                  ) : order.paidAmount > 0 ? (
+                    <span className="text-amber-900 bg-amber-100 px-2.5 py-1 rounded-xl font-bold border border-amber-300">
+                      ENTRADA: {formatCurrency(order.paidAmount)} | RESTA:{' '}
+                      {formatCurrency(Math.max(0, order.totalAmount - order.paidAmount))}
+                    </span>
+                  ) : (
+                    <span className="text-stone-700 bg-stone-200 px-2.5 py-1 rounded-xl font-bold">
+                      A PAGAR NA ENTREGA
+                    </span>
+                  )}
+                </div>
 
                 {/* 4. IF READY: SINGLE ALL-IN-ONE BUTTON */}
                 {/* "quando clicar em enviar mensagem para o cliente depois de pronta ela da baixa automaticamente, tudo em apenas um botão, e a mensagem de script deve ser sem emojis" */}
@@ -384,11 +445,92 @@ export const LojaView: React.FC<LojaViewProps> = ({
                     </div>
                   </div>
                 )}
+
+                {/* 5. IF DELIVERED: SHOW DELIVERED BADGE & DELETE FROM HISTORY BUTTON */}
+                {order.status === 'ENTREGUE' && (
+                  <div className="mt-4 pt-3 border-t-2 border-stone-200 space-y-2.5">
+                    <div className="p-3 bg-stone-100 rounded-2xl text-center space-y-0.5 border border-stone-200">
+                      <div className="flex items-center justify-center gap-1.5 text-stone-700 font-black text-sm uppercase">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 stroke-[2.5]" />
+                        <span>PEDIDO ENTREGUE AO CLIENTE</span>
+                      </div>
+                      <p className="text-[11px] text-stone-500 font-bold">
+                        {order.deliveredAt
+                          ? `Entregue em: ${formatDateBR(order.deliveredAt.substring(0, 10))}`
+                          : 'Faca entregue com sucesso.'}
+                      </p>
+                    </div>
+
+                    {onDeleteOrder && (
+                      <button
+                        id={`btn-loja-excluir-historico-${order.id}`}
+                        onClick={() => setOrderToDelete(order)}
+                        className="w-full py-3 px-4 rounded-2xl bg-stone-100 hover:bg-red-50 text-stone-600 hover:text-red-700 border border-stone-300 hover:border-red-300 font-black text-xs uppercase flex items-center justify-center gap-2 transition-all cursor-pointer group shadow-sm active:scale-98"
+                        title="Excluir este pedido definitivamente do histórico"
+                      >
+                        <Trash2 className="w-4 h-4 text-stone-400 group-hover:text-red-600 transition-colors" />
+                        <span>EXCLUIR ESTE PEDIDO DO HISTÓRICO</span>
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })
         )}
       </div>
+
+      {/* CONFIRMATION MODAL FOR DELETING ORDER FROM HISTÓRICO */}
+      {orderToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 space-y-6 text-center shadow-2xl border-4 border-red-500 animate-in zoom-in-95">
+            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto shadow-inner">
+              <Trash2 className="w-9 h-9 stroke-[2.5]" />
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="text-2xl font-black text-stone-950 uppercase leading-tight">
+                EXCLUIR DO HISTÓRICO?
+              </h3>
+              <div className="p-3.5 bg-stone-50 rounded-2xl border border-stone-200 text-left space-y-1">
+                <p className="text-sm font-black text-stone-900 uppercase">
+                  PEDIDO #{orderToDelete.orderNumber}
+                </p>
+                <p className="text-xs font-bold text-stone-700 uppercase">
+                  CLIENTE: {orderToDelete.customerName}
+                </p>
+                <p className="text-xs text-stone-500">
+                  SERVIÇOS: {orderToDelete.services.map((s) => s.name).join(', ')}
+                </p>
+              </div>
+              <p className="text-xs text-red-600 font-black uppercase">
+                Atenção: Este pedido será excluído definitivamente do banco de dados e do histórico.
+              </p>
+            </div>
+
+            <div className="space-y-3 pt-1">
+              <button
+                id="btn-confirm-loja-sim-excluir"
+                disabled={isDeleting}
+                onClick={handleConfirmDelete}
+                className="w-full min-h-[60px] p-4 rounded-2xl bg-red-600 hover:bg-red-700 active:scale-98 text-white font-black text-base uppercase tracking-wide shadow-lg border-b-4 border-red-800 flex items-center justify-center gap-2 cursor-pointer transition-all"
+              >
+                <Trash2 className="w-5 h-5" />
+                <span>{isDeleting ? 'EXCLUINDO...' : 'SIM, EXCLUIR DEFINITIVAMENTE'}</span>
+              </button>
+
+              <button
+                id="btn-cancel-loja-excluir"
+                disabled={isDeleting}
+                onClick={() => setOrderToDelete(null)}
+                className="w-full py-3.5 rounded-2xl bg-stone-200 hover:bg-stone-300 text-stone-800 font-black text-sm uppercase cursor-pointer"
+              >
+                CANCELAR
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

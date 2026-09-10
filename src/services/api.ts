@@ -381,6 +381,32 @@ export type RealTimeCallback = (event: {
   message?: string;
 }) => void;
 
+const SEEN_ORDERS_STORAGE_KEY = 'cutelaria_seen_orders_tracker_v2';
+
+interface StoredOrderTracker {
+  knownIds: Record<string, string>; // orderId -> status
+  lastMaxOrderNumber: number;
+  lastUpdated: number;
+}
+
+function getStoredOrderTracker(): StoredOrderTracker | null {
+  try {
+    const raw = localStorage.getItem(SEEN_ORDERS_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function saveStoredOrderTracker(tracker: StoredOrderTracker) {
+  try {
+    localStorage.setItem(SEEN_ORDERS_STORAGE_KEY, JSON.stringify(tracker));
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * Assina atualizações em tempo real usando o listener do Firestore onSnapshot().
  * NÃO realiza polling (sem setInterval/setTimeout contínuo).
@@ -399,36 +425,81 @@ export function subscribeToRealTimeEvents(callback: RealTimeCallback): () => voi
   try {
     initFirebase();
     if (isFirebaseActive()) {
-      unsubscribeFirestore = subscribeFirestoreOrders((remoteOrders) => {
+      unsubscribeFirestore = subscribeFirestoreOrders((remoteOrders, changes, wasInitial) => {
         if (isClosed || !Array.isArray(remoteOrders)) return;
 
-        const previousOrders = [...inMemoryOrders];
         inMemoryOrders = remoteOrders;
         saveOfflineCacheOrders(remoteOrders);
 
-        // Detectar se um pedido novo acabou de chegar de outro aparelho
-        if (previousOrders.length > 0 && remoteOrders.length > previousOrders.length) {
-          const newest = remoteOrders[0];
-          const existsInPrevious = previousOrders.some((p) => p.id === newest.id);
-          if (!existsInPrevious) {
-            callback({ type: 'ORDER_CREATED', order: newest });
-          }
+        const storedTracker = getStoredOrderTracker();
+        const currentMaxNumber = remoteOrders.reduce((max, o) => Math.max(max, Number(o.orderNumber) || 0), 0);
+        const currentIdsMap: Record<string, string> = {};
+        for (const o of remoteOrders) {
+          currentIdsMap[o.id] = o.status;
         }
 
-        // Detectar se algum pedido mudou para 'PRONTA'
-        for (const order of remoteOrders) {
-          const prev = previousOrders.find((p) => p.id === order.id);
-          if (prev && prev.status === 'PENDENTE' && order.status === 'PRONTA') {
-            callback({ type: 'ORDER_READY', order });
+        // CENÁRIO A: Dispositivo acabou de abrir o app ou voltar da tela de descanso (wasInitial = true)
+        if (wasInitial) {
+          if (storedTracker) {
+            // Verifica pedidos criados enquanto o celular estava fechado ou descansando
+            const newlyDiscoveredOrders = remoteOrders.filter((o) => {
+              const isUnseenId = !storedTracker.knownIds[o.id];
+              const isHigherNumber = Number(o.orderNumber) > (storedTracker.lastMaxOrderNumber || 0);
+              // Considera pedidos criados recentemente (últimas 24 horas)
+              const isRecent = o.createdAt && (Date.now() - new Date(o.createdAt).getTime()) < 24 * 60 * 60 * 1000;
+              return (isUnseenId || isHigherNumber) && isRecent && o.status !== 'ENTREGUE';
+            });
+
+            for (const newOrd of newlyDiscoveredOrders) {
+              callback({ type: 'ORDER_CREATED', order: newOrd });
+            }
+
+            // Verifica facas marcadas como PRONTA enquanto o celular estava fechado
+            const newlyReadyOrders = remoteOrders.filter((o) => {
+              const prevStatus = storedTracker.knownIds[o.id];
+              return o.status === 'PRONTA' && prevStatus && prevStatus !== 'PRONTA';
+            });
+
+            for (const readyOrd of newlyReadyOrders) {
+              callback({ type: 'ORDER_READY', order: readyOrd });
+            }
           }
+
+          // Atualiza a memória de rastreamento do dispositivo
+          saveStoredOrderTracker({
+            knownIds: currentIdsMap,
+            lastMaxOrderNumber: Math.max(currentMaxNumber, storedTracker?.lastMaxOrderNumber || 0),
+            lastUpdated: Date.now(),
+          });
         }
 
-        // Detectar se algum pedido foi entregue
-        for (const order of remoteOrders) {
-          const prev = previousOrders.find((p) => p.id === order.id);
-          if (prev && prev.status !== 'ENTREGUE' && order.status === 'ENTREGUE') {
-            callback({ type: 'ORDER_DELIVERED', order });
+        // CENÁRIO B: Eventos em tempo real ao vivo (app aberto na tela)
+        if (!wasInitial && changes && changes.length > 0) {
+          for (const change of changes) {
+            // 1. Novo pedido criado no Firestore (por qualquer celular ou notebook)
+            if (change.type === 'added') {
+              callback({ type: 'ORDER_CREATED', order: change.order });
+            }
+            // 2. Pedido atualizado (ex: Cuteleiro marcou Lâmina Pronta no celular)
+            else if (change.type === 'modified') {
+              if (change.oldStatus !== 'PRONTA' && change.order.status === 'PRONTA') {
+                callback({ type: 'ORDER_READY', order: change.order });
+              } else if (change.oldStatus !== 'ENTREGUE' && change.order.status === 'ENTREGUE') {
+                callback({ type: 'ORDER_DELIVERED', order: change.order });
+              }
+            }
+            // 3. Pedido removido
+            else if (change.type === 'removed') {
+              callback({ type: 'ORDER_DELETED', order: change.order });
+            }
           }
+
+          // Atualiza registro no dispositivo
+          saveStoredOrderTracker({
+            knownIds: currentIdsMap,
+            lastMaxOrderNumber: Math.max(currentMaxNumber, storedTracker?.lastMaxOrderNumber || 0),
+            lastUpdated: Date.now(),
+          });
         }
 
         // Enviar lista completa e atualizada para a interface

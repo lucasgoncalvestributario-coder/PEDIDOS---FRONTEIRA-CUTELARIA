@@ -223,13 +223,21 @@ export async function deleteOrderFromFirestore(orderId: string): Promise<void> {
   await deleteDoc(docRef);
 }
 
+export interface FirestoreOrderChange {
+  type: 'added' | 'modified' | 'removed';
+  order: Order;
+  oldStatus?: OrderStatus;
+  hasPendingWrites: boolean;
+  isInitial: boolean;
+}
+
 /**
  * Listener oficial em tempo real com onSnapshot() na coleção pedidosfronteira.
- * Qualquer aparelho (celular A, celular B, tablet ou PC) que fizer alteração
- * notifica todos os outros aparelhos imediatamente.
+ * Qualquer aparelho (celular Android, iPhone, tablet ou PC) que fizer alteração
+ * notifica todos os outros aparelhos imediatamente através das mudanças reais (docChanges).
  */
 export function subscribeFirestoreOrders(
-  onOrdersUpdated: (orders: Order[]) => void,
+  onOrdersUpdated: (orders: Order[], changes: FirestoreOrderChange[], isInitial: boolean) => void,
   onError?: (err: Error) => void
 ): Unsubscribe | null {
   const db = getDb();
@@ -237,18 +245,46 @@ export function subscribeFirestoreOrders(
 
   try {
     const ordersCol = collection(db, FIRESTORE_COLLECTION);
+    let isInitialSnapshot = true;
+    const knownOrdersMap = new Map<string, Order>();
 
     const unsubscribe = onSnapshot(
       ordersCol,
+      { includeMetadataChanges: true },
       (snapshot) => {
         const orders: Order[] = [];
+        const changes: FirestoreOrderChange[] = [];
+
         snapshot.forEach((d) => {
           orders.push(mapDocToOrder(d.id, d.data()));
         });
         // Ordena em memória pelos mais recentes
         orders.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+
+        snapshot.docChanges().forEach((change) => {
+          const order = mapDocToOrder(change.doc.id, change.doc.data());
+          const previous = knownOrdersMap.get(order.id);
+
+          changes.push({
+            type: change.type,
+            order,
+            oldStatus: previous?.status,
+            hasPendingWrites: change.doc.metadata.hasPendingWrites,
+            isInitial: isInitialSnapshot,
+          });
+
+          if (change.type === 'removed') {
+            knownOrdersMap.delete(order.id);
+          } else {
+            knownOrdersMap.set(order.id, order);
+          }
+        });
+
+        const wasInitial = isInitialSnapshot;
+        isInitialSnapshot = false;
+
         triggerPermissionError(false);
-        onOrdersUpdated(orders);
+        onOrdersUpdated(orders, changes, wasInitial);
       },
       (error: any) => {
         if (error?.code === 'permission-denied' || String(error?.message || '').includes('insufficient permissions')) {

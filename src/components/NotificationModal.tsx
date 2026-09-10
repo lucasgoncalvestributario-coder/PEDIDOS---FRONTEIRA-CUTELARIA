@@ -12,6 +12,8 @@ import {
   requestNotificationPermission,
   getNotificationPermission,
   sendConfirmationNotification,
+  sendTestNewOrderNotification,
+  sendTestReadyNotification,
   isIOS,
   isStandalone,
 } from '../services/notifications';
@@ -48,10 +50,18 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
     }
   };
 
-  const handleSendTest = async () => {
-    setTested(true);
-    await sendConfirmationNotification();
-    setTimeout(() => setTested(false), 3000);
+  const [testedType, setTestedType] = useState<'confirmation' | 'new_order' | 'ready' | null>(null);
+
+  const handleSendTestNewOrder = async () => {
+    setTestedType('new_order');
+    await sendTestNewOrderNotification();
+    setTimeout(() => setTestedType(null), 3000);
+  };
+
+  const handleSendTestReady = async () => {
+    setTestedType('ready');
+    await sendTestReadyNotification();
+    setTimeout(() => setTestedType(null), 3000);
   };
 
   const isApple = isIOS();
@@ -145,7 +155,7 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
           )}
 
           {/* Botões de Ação */}
-          <div className="pt-2 space-y-2">
+          <div className="pt-2 space-y-2.5">
             {permission !== 'granted' ? (
               <button
                 id="btn-confirmar-ativacao-notificacao"
@@ -157,21 +167,40 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
                 <span>{loading ? 'ATIVANDO...' : 'ATIVAR NOTIFICAÇÕES AGORA'}</span>
               </button>
             ) : (
-              <button
-                id="btn-testar-notificacao"
-                onClick={handleSendTest}
-                className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-black text-xs uppercase rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>{tested ? '✓ NOTIFICAÇÃO ENVIADA NA BARRA!' : 'ENVIAR NOTIFICAÇÃO DE TESTE NA BARRA'}</span>
-              </button>
+              <div className="space-y-2">
+                <button
+                  id="btn-testar-novo-pedido"
+                  onClick={handleSendTestNewOrder}
+                  className="w-full py-3 px-4 bg-amber-500 hover:bg-amber-400 active:scale-98 text-stone-950 font-black text-xs uppercase rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Bell className="w-4 h-4" />
+                  <span>
+                    {testedType === 'new_order'
+                      ? '✓ ALERTA ENVIADO NA BARRA!'
+                      : 'TESTAR ALERTA DE NOVO PEDIDO'}
+                  </span>
+                </button>
+
+                <button
+                  id="btn-testar-lamina-pronta"
+                  onClick={handleSendTestReady}
+                  className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-black text-xs uppercase rounded-2xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>
+                    {testedType === 'ready'
+                      ? '✓ ALERTA ENVIADO NA BARRA!'
+                      : 'TESTAR ALERTA DE LÂMINA PRONTA'}
+                  </span>
+                </button>
+              </div>
             )}
 
             <button
               onClick={onClose}
               className="w-full py-2.5 text-stone-500 hover:text-stone-800 text-xs font-bold uppercase transition-colors cursor-pointer"
             >
-              {permission === 'granted' ? 'FECHAR' : 'DEPOIS'}
+              FECHAR
             </button>
           </div>
         </div>

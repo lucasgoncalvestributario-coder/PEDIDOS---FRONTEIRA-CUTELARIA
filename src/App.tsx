@@ -5,6 +5,7 @@ import {
   createOrder,
   markOrderReady,
   deliverOrder,
+  deleteOrder,
   subscribeToRealTimeEvents,
 } from './services/api';
 import { onPermissionErrorChange } from './services/firebase';
@@ -14,6 +15,7 @@ import {
   notifyOrderReady,
   requestNotificationPermission,
 } from './services/notifications';
+import { Bell, CheckCircle2 } from 'lucide-react';
 import { Header } from './components/Header';
 import { LoginScreen } from './components/LoginScreen';
 import { LojaView } from './components/LojaView';
@@ -65,6 +67,7 @@ export default function App() {
   const [photoModalIndex, setPhotoModalIndex] = useState<number>(0);
   const [photoCustomerName, setPhotoCustomerName] = useState<string | undefined>(undefined);
   const [newOrderAlert, setNewOrderAlert] = useState<Order | null>(null);
+  const [readyOrderAlert, setReadyOrderAlert] = useState<Order | null>(null);
 
   // Escuta status de permissão das Regras do Firebase
   useEffect(() => {
@@ -168,6 +171,7 @@ export default function App() {
           prev.map((o) => (o.id === readyOrder.id ? readyOrder : o))
         );
         playNotificationChime('ready');
+        setReadyOrderAlert(readyOrder);
 
         // Dispara notificação nativa para a loja saber que está pronto
         notifyOrderReady(readyOrder);
@@ -216,6 +220,12 @@ export default function App() {
   const handleDeliverOrder = async (orderId: string) => {
     const updated = await deliverOrder(orderId);
     setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
+  };
+
+  // Delete order handler (Cuteleiro or Loja)
+  const handleDeleteOrder = async (orderId: string) => {
+    await deleteOrder(orderId);
+    setOrders((prev) => prev.filter((o) => o.id !== orderId));
   };
 
   const handleOpenPhoto = (photos: string[] | string, initialIndex = 0, customerName?: string) => {
@@ -283,6 +293,29 @@ export default function App() {
         </div>
       )}
 
+      {/* Alerta de Faca Pronta para a Loja */}
+      {role === 'LOJA' && readyOrderAlert && (
+        <div className="max-w-3xl mx-auto w-full px-4 pt-3">
+          <div className="p-4 rounded-2xl bg-emerald-600 text-white shadow-xl flex items-center justify-between gap-3 border-2 border-emerald-400 animate-in slide-in-from-top duration-300">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">🗡️</span>
+              <div>
+                <h4 className="font-black text-sm uppercase tracking-tight">Faca Pronta na Bancada!</h4>
+                <p className="text-xs text-emerald-100 font-medium">
+                  Pedido #{readyOrderAlert.orderNumber} ({readyOrderAlert.customerName}) foi marcado como pronto pelo cuteleiro.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setReadyOrderAlert(null)}
+              className="px-3 py-1.5 bg-white text-emerald-950 font-black text-xs uppercase rounded-xl hover:bg-emerald-50 cursor-pointer flex-shrink-0 shadow"
+            >
+              OK, ENTENDIDO
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main View Container */}
       <main className="flex-1">
         {role === 'LOJA' ? (
@@ -290,12 +323,14 @@ export default function App() {
             orders={orders}
             onOpenNovoPedido={() => setIsNovoPedidoOpen(true)}
             onDeliverOrder={handleDeliverOrder}
+            onDeleteOrder={handleDeleteOrder}
             onOpenPhoto={handleOpenPhoto}
           />
         ) : (
           <CuteleiroView
             orders={orders}
             onMarkOrderReady={handleMarkOrderReady}
+            onDeleteOrder={handleDeleteOrder}
             onOpenPhoto={handleOpenPhoto}
             newOrderAlert={newOrderAlert}
             onDismissAlert={() => setNewOrderAlert(null)}

@@ -30,11 +30,16 @@
     <script type="module" src="/src/main.tsx"></script>
     <script>
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch((err) => {
-            console.log('[PWA] Service Worker registration ignored:', err);
-          });
-        });
+        const registerSW = () => {
+          navigator.serviceWorker.register('/sw.js', { scope: '/' })
+            .then((reg) => console.log('[PWA] Service Worker ativo:', reg.scope))
+            .catch((err) => console.warn('[PWA] SW register warning:', err));
+        };
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+          registerSW();
+        } else {
+          window.addEventListener('DOMContentLoaded', registerSW);
+        }
       }
     </script>
   </body>

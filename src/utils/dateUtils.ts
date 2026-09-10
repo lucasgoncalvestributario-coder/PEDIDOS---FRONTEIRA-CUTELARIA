@@ -171,6 +171,9 @@ export function playNotificationChime(type: 'new_order' | 'ready' | 'delivered')
     const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     if (!AudioContextClass) return;
     const ctx = new AudioContextClass();
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
 
     if (type === 'new_order') {
       // Pleasant double chime: 520Hz then 660Hz
