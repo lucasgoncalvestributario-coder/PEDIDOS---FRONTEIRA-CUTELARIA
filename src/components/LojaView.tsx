@@ -392,7 +392,7 @@ export const LojaView: React.FC<LojaViewProps> = ({
                 <div className="mt-3 p-3.5 bg-amber-50 rounded-2xl border-2 border-amber-200 flex flex-wrap items-center justify-between gap-2 text-xs font-black uppercase">
                   <span className="text-stone-800 flex items-center gap-1.5">
                     <DollarSign className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                    VALOR COBRADO:{' '}
+                    VALOR TOTAL:{' '}
                     <span className="font-mono text-base text-stone-950 font-black">
                       {order.totalAmount > 0 ? formatCurrency(order.totalAmount) : 'R$ 0,00'}
                     </span>

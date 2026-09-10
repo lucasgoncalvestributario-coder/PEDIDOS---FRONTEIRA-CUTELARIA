@@ -430,8 +430,10 @@ export const CuteleiroView: React.FC<CuteleiroViewProps> = ({
                     <span>{orderPhotos.length > 1 ? `VER ${orderPhotos.length} FOTOS` : 'AMPLIAR FOTO DA FACA'}</span>
                   </button>
 
-                  <div className="absolute top-3 left-3 px-3 py-1 bg-black/80 text-amber-400 font-mono font-black text-xs uppercase rounded-xl">
-                    PEDIDO #{order.orderNumber}
+                  <div className="absolute top-3 left-3 px-3 py-1.5 bg-black/85 text-amber-400 font-mono font-black text-xs uppercase rounded-xl border border-stone-800 flex items-center gap-2 shadow-lg">
+                    <span>PEDIDO #{order.orderNumber}</span>
+                    <span className="text-stone-600">|</span>
+                    <span className="text-white font-bold">TOTAL: {formatCurrency(order.totalAmount || 0)}</span>
                   </div>
 
                   {orderPhotos.length > 1 && (
@@ -569,27 +571,50 @@ export const CuteleiroView: React.FC<CuteleiroViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Valor Cobrado do Pedido */}
-                  <div className="p-3.5 bg-amber-50 rounded-2xl border-2 border-amber-200 flex flex-wrap items-center justify-between gap-2 text-xs font-black uppercase">
-                    <span className="text-stone-800 flex items-center gap-1.5">
-                      <DollarSign className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                      VALOR COBRADO:{' '}
-                      <span className="font-mono text-base text-stone-950 font-black">
-                        {order.totalAmount > 0 ? formatCurrency(order.totalAmount) : 'R$ 0,00'}
-                      </span>
-                    </span>
-                    {order.isFullyPaid ? (
-                      <span className="text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-xl font-bold border border-emerald-300">
-                        TOTAL PAGO
-                      </span>
-                    ) : order.paidAmount > 0 ? (
-                      <span className="text-amber-900 bg-amber-100 px-2.5 py-1 rounded-xl font-bold border border-amber-300">
-                        ENTRADA: {formatCurrency(order.paidAmount)} | RESTA: {formatCurrency(Math.max(0, order.totalAmount - order.paidAmount))}
-                      </span>
-                    ) : (
-                      <span className="text-stone-700 bg-stone-200 px-2.5 py-1 rounded-xl font-bold">
-                        A RECEBER NA ENTREGA
-                      </span>
+                  {/* Valor Total do Pedido / Serviço */}
+                  <div className="p-4 bg-stone-900 text-white rounded-2xl border-2 border-stone-800 shadow-md space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-amber-500 text-stone-950 flex items-center justify-center font-black shadow flex-shrink-0">
+                          <DollarSign className="w-6 h-6 stroke-[2.5]" />
+                        </div>
+                        <div>
+                          <span className="text-[11px] font-black uppercase tracking-wider text-amber-400 block">
+                            VALOR TOTAL DO PEDIDO
+                          </span>
+                          <span className="font-mono text-2xl font-black text-white leading-tight block">
+                            {formatCurrency(order.totalAmount || 0)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {order.isFullyPaid ? (
+                        <span className="px-3 py-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-black uppercase tracking-wider">
+                          ✓ TOTALMENTE PAGO
+                        </span>
+                      ) : order.paidAmount > 0 ? (
+                        <div className="flex flex-col items-end gap-1">
+                          <span className="px-2.5 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-black uppercase tracking-wide">
+                            ENTRADA PAGA: {formatCurrency(order.paidAmount)}
+                          </span>
+                          <span className="px-2.5 py-0.5 bg-red-500/20 text-red-300 border border-red-500/30 rounded-lg text-[11px] font-black uppercase tracking-wide">
+                            RESTANTE NA ENTREGA: {formatCurrency(Math.max(0, (order.totalAmount || 0) - order.paidAmount))}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="px-3 py-1.5 bg-stone-800 text-stone-300 border border-stone-700 rounded-xl text-xs font-black uppercase tracking-wider">
+                          A RECEBER NA ENTREGA
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Explicação de entrada para o cuteleiro */}
+                    {order.paidAmount > 0 && !order.isFullyPaid && (
+                      <div className="pt-2 border-t border-stone-800 text-xs text-stone-300">
+                        <p className="text-[11px] text-stone-400 font-medium leading-relaxed">
+                          <strong className="text-amber-300 uppercase font-black">Informação do Pedido:</strong> O valor total deste serviço é de <strong className="text-white font-mono">{formatCurrency(order.totalAmount || 0)}</strong>. O cliente pagou uma entrada de <strong className="text-white font-mono">{formatCurrency(order.paidAmount)}</strong> e acertará o restante (<strong className="text-white font-mono">{formatCurrency(Math.max(0, (order.totalAmount || 0) - order.paidAmount))}</strong>) no momento da entrega na loja.
+                        </p>
+                      </div>
                     )}
                   </div>
 
