@@ -520,24 +520,36 @@ export const CuteleiroView: React.FC<CuteleiroViewProps> = ({
 
                   {/* Services & specifications */}
                   <div className="p-3.5 bg-stone-100 rounded-2xl border border-stone-200 space-y-2">
-                    <span className="text-xs font-black uppercase text-stone-600 flex items-center gap-1.5">
-                      <Scissors className="w-4 h-4 text-amber-600" />
-                      O QUE PRECISA SER FEITO:
-                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black uppercase text-stone-600 flex items-center gap-1.5">
+                        <Scissors className="w-4 h-4 text-amber-600" />
+                        O QUE PRECISA SER FEITO:
+                      </span>
+                      <span className="text-[11px] font-bold text-stone-500 uppercase">
+                        {order.services.length} serviço(s)
+                      </span>
+                    </div>
 
                     <div className="space-y-2">
                       {order.services.map((srv, idx) => (
-                        <div key={idx} className="bg-white p-2.5 rounded-xl border border-stone-200">
-                          <div className="text-base font-black text-stone-950 uppercase">
-                            • {srv.name}
+                        <div key={idx} className="bg-white p-3 rounded-xl border border-stone-200 shadow-xs space-y-1.5">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="text-sm sm:text-base font-black text-stone-950 uppercase">
+                              • {srv.name}
+                            </span>
+                            {srv.price !== undefined && srv.price > 0 && (
+                              <span className="font-mono text-xs font-black text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-300">
+                                {formatCurrency(srv.price)}
+                              </span>
+                            )}
                           </div>
                           {srv.details && (
-                            <div className="text-xs font-bold text-amber-800 bg-amber-50 p-1.5 rounded-lg mt-1 inline-block border border-amber-200">
+                            <div className="text-xs font-bold text-amber-900 bg-amber-50 p-1.5 rounded-lg inline-block border border-amber-200">
                               ESPECIFICAÇÃO: {srv.details}
                             </div>
                           )}
                           {srv.notes && (
-                            <div className="text-xs font-semibold text-stone-700 mt-1 pl-1">
+                            <div className="text-xs font-semibold text-stone-700 pl-1">
                               Observação: {srv.notes}
                             </div>
                           )}

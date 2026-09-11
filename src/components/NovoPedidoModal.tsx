@@ -1,7 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ServiceItem } from '../types';
 import { compressImage, uploadKnifePhoto } from '../services/api';
-import { formatPhone } from '../utils/dateUtils';
+import { formatPhone, formatCurrency } from '../utils/dateUtils';
 import {
   Camera,
   Image as ImageIcon,
@@ -17,6 +17,7 @@ import {
   Phone,
   Scissors,
   Eye,
+  Calculator,
 } from 'lucide-react';
 
 interface NovoPedidoModalProps {
@@ -35,35 +36,79 @@ interface NovoPedidoModalProps {
   }) => Promise<void>;
 }
 
-// Pre-registered services in CAIXA ALTA
-const PREDEFINED_SERVICES = [
-  'AFIAÇÃO',
-  'RESTAURAÇÃO',
-  'POLIMENTO',
-  'TROCA DE CABO',
-  'BAINHA',
-  'PERSONALIZAÇÃO',
-  'GRAVAÇÃO',
-  'MANUTENÇÃO',
-  'OUTRO',
+// Catálogo de serviços pré-cadastrados com valores padrão
+export interface ServiceCatalogItem {
+  name: string;
+  defaultPrice: number;
+  badge: string;
+  isCombo?: boolean;
+}
+
+export const PREDEFINED_SERVICES: ServiceCatalogItem[] = [
+  {
+    name: 'AFIAÇÃO + POLIMENTO + PEQUENOS REPAROS',
+    defaultPrice: 50,
+    badge: 'R$ 50,00',
+    isCombo: true,
+  },
+  {
+    name: 'AFIAÇÃO',
+    defaultPrice: 25,
+    badge: 'R$ 25,00',
+  },
+  {
+    name: 'TROCA DE CABO',
+    defaultPrice: 90,
+    badge: 'R$ 70 a R$ 250',
+  },
+  {
+    name: 'BAINHA',
+    defaultPrice: 70,
+    badge: 'R$ 70 ou R$ 100',
+  },
+  {
+    name: 'POLIMENTO',
+    defaultPrice: 0,
+    badge: 'VALOR MANUAL',
+  },
+  {
+    name: 'PEQUENOS REPAROS',
+    defaultPrice: 0,
+    badge: 'VALOR MANUAL',
+  },
+  {
+    name: 'RESTAURAÇÃO COMPLETA',
+    defaultPrice: 0,
+    badge: 'VALOR MANUAL',
+  },
+  {
+    name: 'PERSONALIZAÇÃO / GRAVAÇÃO',
+    defaultPrice: 0,
+    badge: 'VALOR MANUAL',
+  },
+  {
+    name: 'OUTROS SERVIÇOS',
+    defaultPrice: 0,
+    badge: 'VALOR MANUAL',
+  },
 ];
 
-// Quick options for TROCA DE CABO
-const CABO_OPTIONS = [
-  'CHIFRE DE BOI',
-  'CHIFRE DE CERVO',
-  'OSSO',
-  'CANELA DE OVELHA',
-  'MADEIRA NOBRE',
-  'MADEIRA TRADICIONAL',
-  'RESINA',
-  'ZAMAC',
+// Opções de cabo com valores exatos solicitados
+export const CABO_PRICE_OPTIONS = [
+  { name: 'CHIFRE DE BOI', price: 90 },
+  { name: 'OSSO', price: 90 },
+  { name: 'MESCLADO', price: 90 },
+  { name: 'HÍBRIDO', price: 120 },
+  { name: 'CHIFRE DE CERVO', price: 250 },
+  { name: 'MADEIRA TRADICIONAL', price: 70 },
+  { name: 'MADEIRA NOBRE', price: 90 },
 ];
 
-// Quick options for BAINHA (somente preta ou marrom)
-const BAINHA_OPTIONS = [
-  'PRETA',
-  'MARROM',
+// Opções de bainha: preta ou marrom, 70 até 11" ou 100 a partir de 12"
+export const BAINHA_COLORS = ['PRETA', 'MARROM'];
+export const BAINHA_SIZES = [
+  { label: 'ATÉ 11 POLEGADAS', price: 70 },
+  { label: 'A PARTIR DE 12 POLEGADAS', price: 100 },
 ];
 
 export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
@@ -74,9 +119,9 @@ export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [selectedServices, setSelectedServices] = useState<ServiceItem[]>([
-    { name: 'AFIAÇÃO', notes: '' },
+    { name: 'AFIAÇÃO', price: 25, notes: '' },
   ]);
-  const [totalAmount, setTotalAmount] = useState<string>('');
+  const [totalAmount, setTotalAmount] = useState<string>('25.00');
   const [isFullyPaid, setIsFullyPaid] = useState<boolean>(false);
   const [paidAmount, setPaidAmount] = useState<string>('');
   const [deliveryDate, setDeliveryDate] = useState<string>(() => {
@@ -93,6 +138,19 @@ export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
 
+  // Recalcula e atualiza o total automaticamente sempre que os serviços selecionados mudarem
+  useEffect(() => {
+    const sum = selectedServices.reduce((acc, s) => acc + (Number(s.price) || 0), 0);
+    setTotalAmount(sum > 0 ? sum.toFixed(2) : '');
+  }, [selectedServices]);
+
+  // Se já foi pago tudo, sincroniza automaticamente o valor pago com o total
+  useEffect(() => {
+    if (isFullyPaid) {
+      setPaidAmount(totalAmount);
+    }
+  }, [isFullyPaid, totalAmount]);
+
   if (!isOpen) return null;
 
   // Toggle or add service
@@ -106,9 +164,27 @@ export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
       setSelectedServices(selectedServices.filter((s) => s.name !== serviceName));
     } else {
       let defaultDetails = '';
-      if (serviceName === 'BAINHA') defaultDetails = 'PRETA';
-      if (serviceName === 'TROCA DE CABO') defaultDetails = 'CHIFRE DE CERVO';
-      setSelectedServices([...selectedServices, { name: serviceName, details: defaultDetails, notes: '' }]);
+      let defaultPrice = 0;
+
+      if (serviceName === 'AFIAÇÃO + POLIMENTO + PEQUENOS REPAROS') {
+        defaultPrice = 50;
+      } else if (serviceName === 'AFIAÇÃO') {
+        defaultPrice = 25;
+      } else if (serviceName === 'TROCA DE CABO') {
+        defaultDetails = 'CHIFRE DE BOI';
+        defaultPrice = 90;
+      } else if (serviceName === 'BAINHA') {
+        defaultDetails = 'PRETA (ATÉ 11 POLEGADAS)';
+        defaultPrice = 70;
+      } else {
+        const found = PREDEFINED_SERVICES.find((p) => p.name === serviceName);
+        defaultPrice = found?.defaultPrice || 0;
+      }
+
+      setSelectedServices([
+        ...selectedServices,
+        { name: serviceName, details: defaultDetails, price: defaultPrice, notes: '' },
+      ]);
       setErrorMessage(null);
     }
   };
@@ -119,9 +195,50 @@ export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
     );
   };
 
+  const updateServicePrice = (serviceName: string, price: number) => {
+    setSelectedServices(
+      selectedServices.map((s) => (s.name === serviceName ? { ...s, price } : s))
+    );
+  };
+
   const updateServiceNotes = (serviceName: string, notes: string) => {
     setSelectedServices(
       selectedServices.map((s) => (s.name === serviceName ? { ...s, notes } : s))
+    );
+  };
+
+  // Funções específicas para Troca de Cabo
+  const updateCaboType = (caboName: string, price: number) => {
+    setSelectedServices((prev) =>
+      prev.map((s) =>
+        s.name === 'TROCA DE CABO'
+          ? { ...s, details: caboName, price }
+          : s
+      )
+    );
+  };
+
+  // Funções específicas para Bainha (Preta/Marrom e Tamanho da Lâmina)
+  const parseBainhaDetails = (details?: string) => {
+    const d = (details || '').toUpperCase();
+    const color = d.includes('MARROM') ? 'MARROM' : 'PRETA';
+    const isLarge = d.includes('12 POLEGADAS') || d.includes('12"') || d.includes('A PARTIR');
+    const size = isLarge ? 'A PARTIR DE 12 POLEGADAS' : 'ATÉ 11 POLEGADAS';
+    return { color, size };
+  };
+
+  const updateBainha = (color: string, size: string) => {
+    const price = size === 'A PARTIR DE 12 POLEGADAS' ? 100 : 70;
+    setSelectedServices((prev) =>
+      prev.map((s) =>
+        s.name === 'BAINHA'
+          ? {
+              ...s,
+              details: `${color} (${size})`,
+              price,
+            }
+          : s
+      )
     );
   };
 
@@ -214,8 +331,8 @@ export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
   const handleResetAndClose = () => {
     setCustomerName('');
     setCustomerPhone('');
-    setSelectedServices([{ name: 'AFIAÇÃO', notes: '' }]);
-    setTotalAmount('');
+    setSelectedServices([{ name: 'AFIAÇÃO', price: 25, notes: '' }]);
+    setTotalAmount('25.00');
     setPaidAmount('');
     setIsFullyPaid(false);
     setPhotos([]);
@@ -315,54 +432,72 @@ export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
                 />
               </div>
 
-              {/* 3. SERVIÇOS PRÉ-CADASTRADOS */}
-              <div className="space-y-2">
-                <label className="text-sm font-black uppercase tracking-wider text-stone-800 flex items-center justify-between">
-                  <span className="flex items-center gap-2">
+              {/* 3. SERVIÇOS PRÉ-CADASTRADOS COM TABELA DE VALORES */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <label className="text-sm font-black uppercase tracking-wider text-stone-800 flex items-center gap-2">
                     <Scissors className="w-5 h-5 text-amber-600" />
                     SERVIÇOS (SELECIONE UM OU MAIS) *
-                  </span>
-                  <span className="text-xs text-stone-500 font-normal">
+                  </label>
+                  <span className="text-xs text-stone-600 font-bold bg-stone-100 px-2.5 py-1 rounded-full border border-stone-300">
                     {selectedServices.length} selecionado(s)
                   </span>
-                </label>
+                </div>
 
-                {/* Chips of services */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {/* Chips of services with badges */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                   {PREDEFINED_SERVICES.map((srv) => {
-                    const isSelected = selectedServices.some((s) => s.name === srv);
+                    const isSelected = selectedServices.some((s) => s.name === srv.name);
                     return (
                       <button
-                        key={srv}
-                        id={`btn-service-${srv.toLowerCase().replace(/\s+/g, '-')}`}
+                        key={srv.name}
+                        id={`btn-service-${srv.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
                         type="button"
-                        onClick={() => toggleService(srv)}
-                        className={`p-3 rounded-xl font-black text-xs sm:text-sm uppercase tracking-wide border-2 transition-all flex items-center justify-center text-center ${
+                        onClick={() => toggleService(srv.name)}
+                        className={`p-3 rounded-2xl font-black text-xs uppercase tracking-wide border-2 transition-all flex flex-col items-center justify-center gap-1.5 text-center cursor-pointer ${
                           isSelected
-                            ? 'bg-amber-500 border-amber-600 text-stone-950 shadow-sm scale-[1.02]'
-                            : 'bg-stone-100 border-stone-300 text-stone-700 hover:bg-stone-200'
+                            ? 'bg-amber-500 border-amber-600 text-stone-950 shadow-md scale-[1.02]'
+                            : 'bg-stone-50 border-stone-300 text-stone-800 hover:bg-stone-100 hover:border-stone-400'
                         }`}
                       >
-                        {srv}
+                        <span className="leading-tight">{srv.name}</span>
+                        <span
+                          className={`text-[11px] font-mono px-2 py-0.5 rounded-md ${
+                            isSelected
+                              ? 'bg-stone-950 text-amber-300 font-black'
+                              : 'bg-stone-200 text-stone-700 font-bold'
+                          }`}
+                        >
+                          {srv.badge}
+                        </span>
                       </button>
                     );
                   })}
                 </div>
 
-                {/* Details & notes for selected services */}
+                {/* Details, options & individual prices for selected services */}
                 <div className="space-y-3 pt-2">
                   {selectedServices.map((srv) => (
                     <div
                       key={srv.name}
-                      className="p-3 bg-stone-50 rounded-2xl border-2 border-stone-200 space-y-2"
+                      className="p-3.5 bg-stone-50 rounded-2xl border-2 border-stone-300 space-y-3 shadow-xs"
                     >
-                      <div className="flex items-center justify-between font-black text-sm text-stone-900 uppercase">
-                        <span>SERVIÇO: {srv.name}</span>
+                      <div className="flex items-center justify-between pb-2 border-b border-stone-200">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-black text-sm text-stone-950 uppercase tracking-tight">
+                            SERVIÇO: {srv.name}
+                          </span>
+                          {srv.price !== undefined && srv.price > 0 && (
+                            <span className="text-xs font-mono font-black text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-300">
+                              {formatCurrency(srv.price)}
+                            </span>
+                          )}
+                        </div>
                         {selectedServices.length > 1 && (
                           <button
                             type="button"
                             onClick={() => toggleService(srv.name)}
-                            className="text-red-600 hover:text-red-700 text-xs flex items-center gap-1 font-bold"
+                            className="text-red-600 hover:text-red-700 text-xs flex items-center gap-1 font-bold cursor-pointer"
                           >
                             <Trash2 className="w-3.5 h-3.5" /> REMOVER
                           </button>
@@ -371,66 +506,154 @@ export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
 
                       {/* Special options for TROCA DE CABO */}
                       {srv.name === 'TROCA DE CABO' && (
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-bold uppercase text-stone-600">
-                            TIPO DE CABO:
+                        <div className="space-y-2">
+                          <label className="text-xs font-black uppercase text-stone-700 block">
+                            TIPO DE CABO (VALORES DEFINIDOS):
                           </label>
-                          <div className="flex flex-wrap gap-1.5">
-                            {CABO_OPTIONS.map((cabo) => (
-                              <button
-                                key={cabo}
-                                type="button"
-                                onClick={() => updateServiceDetail(srv.name, cabo)}
-                                className={`px-2.5 py-1.5 rounded-lg text-xs font-bold uppercase border ${
-                                  srv.details === cabo
-                                    ? 'bg-stone-900 text-amber-400 border-stone-900'
-                                    : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-100'
-                                }`}
-                              >
-                                {cabo}
-                              </button>
-                            ))}
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                            {CABO_PRICE_OPTIONS.map((cabo) => {
+                              const isCaboActive = srv.details === cabo.name;
+                              return (
+                                <button
+                                  key={cabo.name}
+                                  type="button"
+                                  onClick={() => updateCaboType(cabo.name, cabo.price)}
+                                  className={`p-2 rounded-xl text-xs font-black uppercase border-2 transition-all flex flex-col items-center justify-center text-center cursor-pointer ${
+                                    isCaboActive
+                                      ? 'bg-stone-950 text-amber-400 border-stone-950 shadow-sm'
+                                      : 'bg-white text-stone-800 border-stone-300 hover:bg-stone-100'
+                                  }`}
+                                >
+                                  <span>{cabo.name}</span>
+                                  <span
+                                    className={`text-[11px] font-mono mt-0.5 font-bold ${
+                                      isCaboActive ? 'text-emerald-300' : 'text-stone-500'
+                                    }`}
+                                  >
+                                    R$ {cabo.price},00
+                                  </span>
+                                </button>
+                              );
+                            })}
                           </div>
-                          <input
-                            type="text"
-                            placeholder="Ou digite outro tipo de cabo..."
-                            value={srv.details || ''}
-                            onChange={(e) => updateServiceDetail(srv.name, e.target.value.toUpperCase())}
-                            className="w-full p-2.5 text-xs font-bold uppercase rounded-xl border border-stone-300 bg-white"
-                          />
+                          <div className="pt-1">
+                            <input
+                              type="text"
+                              placeholder="Ou digite outro tipo de cabo personalizado..."
+                              value={
+                                CABO_PRICE_OPTIONS.some((c) => c.name === srv.details)
+                                  ? ''
+                                  : srv.details || ''
+                              }
+                              onChange={(e) => {
+                                const customName = e.target.value.toUpperCase();
+                                setSelectedServices((prev) =>
+                                  prev.map((s) =>
+                                    s.name === 'TROCA DE CABO'
+                                      ? { ...s, details: customName }
+                                      : s
+                                  )
+                                );
+                              }}
+                              className="w-full p-2.5 text-xs font-bold uppercase rounded-xl border border-stone-300 bg-white"
+                            />
+                          </div>
                         </div>
                       )}
 
                       {/* Special options for BAINHA */}
                       {srv.name === 'BAINHA' && (
-                        <div className="space-y-1.5">
-                          <label className="text-xs font-bold uppercase text-stone-600">
-                            COR DA BAINHA (ESCOLHA PRETA OU MARROM):
-                          </label>
-                          <div className="grid grid-cols-2 gap-2">
-                            {BAINHA_OPTIONS.map((bainha) => (
-                              <button
-                                key={bainha}
-                                type="button"
-                                onClick={() => updateServiceDetail(srv.name, bainha)}
-                                className={`py-3 rounded-xl text-sm font-black uppercase border-2 transition-all ${
-                                  (srv.details || 'PRETA') === bainha
-                                    ? 'bg-stone-900 text-amber-400 border-stone-900 shadow-sm scale-[1.02]'
-                                    : 'bg-white text-stone-700 border-stone-300 hover:bg-stone-100'
-                                }`}
-                              >
-                                {bainha}
-                              </button>
-                            ))}
+                        <div className="space-y-2.5">
+                          <div>
+                            <label className="text-xs font-black uppercase text-stone-700 block mb-1">
+                              1. COR DA BAINHA:
+                            </label>
+                            <div className="grid grid-cols-2 gap-2">
+                              {BAINHA_COLORS.map((cor) => {
+                                const { color: currColor, size: currSize } = parseBainhaDetails(
+                                  srv.details
+                                );
+                                const isColorSelected = currColor === cor;
+                                return (
+                                  <button
+                                    key={cor}
+                                    type="button"
+                                    onClick={() => updateBainha(cor, currSize)}
+                                    className={`py-2.5 px-3 rounded-xl text-xs font-black uppercase border-2 transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                                      isColorSelected
+                                        ? 'bg-stone-950 text-amber-400 border-stone-950 shadow-sm'
+                                        : 'bg-white text-stone-800 border-stone-300 hover:bg-stone-100'
+                                    }`}
+                                  >
+                                    <span>{cor === 'PRETA' ? '⚫' : '🟤'}</span>
+                                    <span>BAINHA {cor}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-black uppercase text-stone-700 block mb-1">
+                              2. COMPRIMENTO DA LÂMINA:
+                            </label>
+                            <div className="grid grid-cols-2 gap-2">
+                              {BAINHA_SIZES.map((tamanho) => {
+                                const { color: currColor, size: currSize } = parseBainhaDetails(
+                                  srv.details
+                                );
+                                const isSizeSelected = currSize === tamanho.label;
+                                return (
+                                  <button
+                                    key={tamanho.label}
+                                    type="button"
+                                    onClick={() => updateBainha(currColor, tamanho.label)}
+                                    className={`py-2.5 px-3 rounded-xl text-xs font-black uppercase border-2 transition-all flex flex-col items-center justify-center cursor-pointer ${
+                                      isSizeSelected
+                                        ? 'bg-amber-500 text-stone-950 border-amber-600 shadow-sm'
+                                        : 'bg-white text-stone-800 border-stone-300 hover:bg-stone-100'
+                                    }`}
+                                  >
+                                    <span>{tamanho.label}</span>
+                                    <span className="text-[11px] font-mono font-black mt-0.5">
+                                      R$ {tamanho.price},00
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
                         </div>
                       )}
 
-                      {/* General observation note for this service */}
+                      {/* Campo editável de valor deste serviço */}
+                      <div className="p-2.5 bg-stone-100/90 rounded-xl border border-stone-200 flex flex-wrap items-center justify-between gap-2">
+                        <label className="text-xs font-black uppercase text-stone-700 flex items-center gap-1.5">
+                          <DollarSign className="w-4 h-4 text-amber-700" />
+                          VALOR DESTE SERVIÇO:
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-black text-stone-500">R$</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder="0,00"
+                            value={srv.price !== undefined ? srv.price : ''}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value);
+                              updateServicePrice(srv.name, isNaN(val) ? 0 : val);
+                            }}
+                            className="w-28 p-1.5 text-sm font-black font-mono text-stone-950 text-right bg-white rounded-lg border-2 border-stone-300 focus:border-amber-500 outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Observação específica para o serviço */}
                       <div>
                         <input
                           type="text"
-                          placeholder={`OBSERVAÇÃO PARA ${srv.name} (OPCIONAL)`}
+                          placeholder={`Observação específica para ${srv.name} (opcional)`}
                           value={srv.notes || ''}
                           onChange={(e) => updateServiceNotes(srv.name, e.target.value.toUpperCase())}
                           className="w-full p-2.5 text-xs font-semibold uppercase rounded-xl border border-stone-300 bg-white"
@@ -441,26 +664,72 @@ export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
                 </div>
               </div>
 
-              {/* 4. VALORES */}
-              <div className="p-4 bg-amber-50/70 rounded-2xl border-2 border-amber-200 space-y-3">
-                <label className="text-sm font-black uppercase tracking-wider text-stone-900 flex items-center gap-2">
-                  <DollarSign className="w-5 h-5 text-amber-700" />
-                  VALORES E PAGAMENTO
-                </label>
+              {/* 4. VALORES E CÁLCULO DO TOTAL EM TEMPO REAL */}
+              <div className="p-4 bg-amber-50/80 rounded-3xl border-2 border-amber-300 space-y-4 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-black uppercase tracking-wider text-stone-950 flex items-center gap-2">
+                    <Calculator className="w-5 h-5 text-amber-600" />
+                    VALORES E PAGAMENTO DO PEDIDO
+                  </label>
+                  <span className="text-[11px] font-black uppercase bg-amber-200/80 text-amber-900 px-2.5 py-0.5 rounded-full border border-amber-300">
+                    Cálculo Automático
+                  </span>
+                </div>
 
+                {/* Resumo detalhado dos serviços e valores antes de fechar */}
+                <div className="p-3.5 bg-white rounded-2xl border border-amber-200 space-y-2">
+                  <span className="text-xs font-black uppercase text-stone-600 block">
+                    DISCRIMINAÇÃO DOS SERVIÇOS:
+                  </span>
+                  <div className="space-y-1.5 divide-y divide-stone-100">
+                    {selectedServices.map((s, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between text-xs py-1 pt-1.5 first:pt-0"
+                      >
+                        <div className="font-bold text-stone-800 uppercase flex items-center gap-1.5 flex-wrap">
+                          <span className="text-amber-600 font-black">•</span>
+                          <span>{s.name}</span>
+                          {s.details && (
+                            <span className="text-[11px] text-stone-500 font-semibold">
+                              ({s.details})
+                            </span>
+                          )}
+                        </div>
+                        <span className="font-mono font-black text-stone-950 ml-2">
+                          {formatCurrency(s.price || 0)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Total geral atualizado */}
+                  <div className="pt-2 border-t-2 border-amber-100 flex items-center justify-between">
+                    <span className="text-xs font-black uppercase tracking-wider text-stone-800">
+                      TOTAL ATUALIZADO:
+                    </span>
+                    <span className="font-mono text-xl font-black text-stone-950">
+                      {formatCurrency(parseFloat(totalAmount) || 0)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Campos de Valor Total e Pagamento */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <span className="text-xs font-bold text-stone-700 uppercase">
-                      VALOR TOTAL COBRADO (R$)
+                    <span className="text-xs font-bold text-stone-700 uppercase flex items-center justify-between">
+                      <span>VALOR TOTAL (R$)</span>
+                      <span className="text-[10px] text-stone-500 font-medium">Ajustável manual</span>
                     </span>
                     <input
                       id="input-total-amount"
                       type="number"
                       step="0.01"
+                      min="0"
                       placeholder="0,00"
                       value={totalAmount}
                       onChange={(e) => setTotalAmount(e.target.value)}
-                      className="w-full p-3 font-bold text-base rounded-xl border-2 border-amber-300 bg-white focus:outline-none focus:border-amber-600"
+                      className="w-full p-3 font-mono font-black text-lg rounded-xl border-2 border-amber-400 bg-white focus:outline-none focus:border-amber-600 shadow-sm"
                     />
                   </div>
 
@@ -468,11 +737,17 @@ export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
                     <button
                       id="btn-toggle-fully-paid"
                       type="button"
-                      onClick={() => setIsFullyPaid(!isFullyPaid)}
-                      className={`w-full p-3 rounded-xl font-black text-xs uppercase tracking-wide border-2 flex items-center justify-center gap-2 transition-all ${
+                      onClick={() => {
+                        const next = !isFullyPaid;
+                        setIsFullyPaid(next);
+                        if (next) {
+                          setPaidAmount(totalAmount);
+                        }
+                      }}
+                      className={`w-full p-3 rounded-xl font-black text-xs uppercase tracking-wide border-2 flex items-center justify-center gap-2 transition-all cursor-pointer ${
                         isFullyPaid
-                          ? 'bg-emerald-600 border-emerald-700 text-white'
-                          : 'bg-white border-stone-300 text-stone-700'
+                          ? 'bg-emerald-600 border-emerald-700 text-white shadow-md'
+                          : 'bg-white border-stone-300 text-stone-700 hover:bg-stone-50'
                       }`}
                     >
                       <CheckCircle2 className={`w-4 h-4 ${isFullyPaid ? 'text-white' : 'text-stone-400'}`} />
@@ -482,7 +757,7 @@ export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
                 </div>
 
                 {!isFullyPaid && (
-                  <div className="pt-1">
+                  <div className="pt-1 space-y-2">
                     <div className="space-y-1">
                       <span className="text-xs font-bold text-stone-700 uppercase">
                         VALOR DADO DE ENTRADA (R$)
@@ -491,21 +766,24 @@ export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
                         id="input-paid-amount"
                         type="number"
                         step="0.01"
+                        min="0"
                         placeholder="0,00"
                         value={paidAmount}
                         onChange={(e) => setPaidAmount(e.target.value)}
-                        className="w-full p-3 font-bold text-base rounded-xl border-2 border-stone-300 bg-white focus:outline-none focus:border-amber-500"
+                        className="w-full p-3 font-mono font-bold text-base rounded-xl border-2 border-stone-300 bg-white focus:outline-none focus:border-amber-500"
                       />
                     </div>
-                    {totalAmount && paidAmount && (
-                      <div className="text-xs font-bold text-stone-600 mt-1 text-right">
-                        RESTANTE A PAGAR: R${' '}
-                        {(
-                          Math.max(
-                            0,
-                            (parseFloat(totalAmount) || 0) - (parseFloat(paidAmount) || 0)
-                          )
-                        ).toFixed(2)}
+                    {totalAmount && (
+                      <div className="p-2.5 bg-stone-900 text-white rounded-xl flex items-center justify-between text-xs font-black uppercase">
+                        <span className="text-amber-400">RESTANTE A PAGAR NA ENTREGA:</span>
+                        <span className="font-mono text-sm text-white">
+                          {formatCurrency(
+                            Math.max(
+                              0,
+                              (parseFloat(totalAmount) || 0) - (parseFloat(paidAmount) || 0)
+                            )
+                          )}
+                        </span>
                       </div>
                     )}
                   </div>

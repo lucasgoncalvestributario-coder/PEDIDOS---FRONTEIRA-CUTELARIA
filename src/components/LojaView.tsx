@@ -350,14 +350,28 @@ export const LojaView: React.FC<LojaViewProps> = ({
 
                 {/* Services List */}
                 <div className="p-3 bg-stone-100 rounded-2xl border border-stone-200 space-y-1.5">
-                  <span className="text-xs font-black uppercase text-stone-600 flex items-center gap-1.5">
-                    <Scissors className="w-3.5 h-3.5 text-amber-600" />
-                    SERVIÇOS SOLICITADOS:
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black uppercase text-stone-600 flex items-center gap-1.5">
+                      <Scissors className="w-3.5 h-3.5 text-amber-600" />
+                      SERVIÇOS SOLICITADOS:
+                    </span>
+                    <span className="text-[11px] font-bold text-stone-500 uppercase">
+                      {order.services.length} serviço(s)
+                    </span>
+                  </div>
                   <div className="space-y-1">
                     {order.services.map((srv, idx) => (
                       <div key={idx} className="font-black text-stone-900 text-sm">
-                        • {srv.name} {srv.details ? `— [${srv.details}]` : ''}
+                        <div className="flex items-center justify-between gap-2">
+                          <span>
+                            • {srv.name} {srv.details ? `— [${srv.details}]` : ''}
+                          </span>
+                          {srv.price !== undefined && srv.price > 0 && (
+                            <span className="font-mono text-xs font-black text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-300">
+                              {formatCurrency(srv.price)}
+                            </span>
+                          )}
+                        </div>
                         {srv.notes && (
                           <span className="text-xs font-medium text-stone-600 block pl-3">
                             Obs: {srv.notes}

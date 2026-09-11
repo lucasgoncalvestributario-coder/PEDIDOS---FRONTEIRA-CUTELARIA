@@ -4,6 +4,7 @@ export interface ServiceItem {
   name: string; // e.g. 'AFIAÇÃO', 'TROCA DE CABO', 'BAINHA'
   details?: string; // e.g. 'CHIFRE DE CERVO' ou 'DE COURO'
   notes?: string; // observação específica
+  price?: number; // valor cobrado por este serviço específico
 }
 
 export interface Order {
