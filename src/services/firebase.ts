@@ -183,6 +183,24 @@ export async function createOrderInFirestore(orderData: Omit<Order, 'id'>): Prom
 }
 
 /**
+ * Atualiza campos de um pedido diretamente em pedidosfronteira
+ */
+export async function updateOrderInFirestore(orderId: string, orderData: Partial<Order>): Promise<void> {
+  const db = getDb();
+  if (!db) return;
+
+  const docRef = doc(db, FIRESTORE_COLLECTION, orderId);
+  const cleanData = JSON.parse(JSON.stringify(orderData));
+  // Remover o campo id para não duplicar no corpo do documento
+  delete cleanData.id;
+
+  await updateDoc(docRef, {
+    ...cleanData,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+/**
  * Atualiza status para PRONTA diretamente em pedidosfronteira
  */
 export async function updateOrderReadyInFirestore(orderId: string, completedAt: string): Promise<void> {

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Order } from '../types';
 import { calculateUrgency, formatDateBR, formatCurrency } from '../utils/dateUtils';
+import { EditarPedidoModal } from './EditarPedidoModal';
 import {
   Plus,
   Search,
@@ -15,12 +16,14 @@ import {
   Send,
   History,
   Trash2,
+  Edit3,
 } from 'lucide-react';
 
 interface LojaViewProps {
   orders: Order[];
   onOpenNovoPedido: () => void;
   onDeliverOrder: (orderId: string) => Promise<void>;
+  onUpdateOrder: (orderId: string, updatedData: Partial<Order>) => Promise<void>;
   onDeleteOrder?: (orderId: string) => Promise<void>;
   onOpenPhoto: (photos: string[] | string, initialIndex?: number, customerName?: string) => void;
 }
@@ -31,6 +34,7 @@ export const LojaView: React.FC<LojaViewProps> = ({
   orders,
   onOpenNovoPedido,
   onDeliverOrder,
+  onUpdateOrder,
   onDeleteOrder,
   onOpenPhoto,
 }) => {
@@ -39,7 +43,18 @@ export const LojaView: React.FC<LojaViewProps> = ({
   const [processingOrderId, setProcessingOrderId] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
+  const [orderToEdit, setOrderToEdit] = useState<Order | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleSaveEditedOrder = async (orderId: string, updatedData: Partial<Order>) => {
+    try {
+      await onUpdateOrder(orderId, updatedData);
+      setFeedbackMessage(`Pedido #${orderToEdit?.orderNumber || ''} atualizado com sucesso! Alterações enviadas ao cuteleiro.`);
+      setTimeout(() => setFeedbackMessage(null), 4000);
+    } catch (err) {
+      console.error('Erro ao salvar pedido editado:', err);
+    }
+  };
 
   // Orders separation
   const activeOrders = orders.filter((o) => o.status !== 'ENTREGUE');
@@ -248,7 +263,8 @@ export const LojaView: React.FC<LojaViewProps> = ({
           </div>
         ) : (
           filteredOrders.map((order) => {
-            const urgency = calculateUrgency(order.deliveryDate);
+            const isDelivered = order.status === 'ENTREGUE';
+            const urgency = calculateUrgency(order.deliveryDate, isDelivered);
             const isReady = order.status === 'PRONTA';
             const orderPhotos = order.photos && order.photos.length > 0 ? order.photos : (order.photoUrl ? [order.photoUrl] : []);
             const isDeliveringThis = processingOrderId === order.id;
@@ -258,7 +274,9 @@ export const LojaView: React.FC<LojaViewProps> = ({
                 key={order.id}
                 id={`card-order-${order.id}`}
                 className={`bg-white rounded-3xl p-4 sm:p-5 shadow-lg border-4 transition-all ${
-                  isReady
+                  isDelivered
+                    ? 'border-stone-300 bg-stone-50/50'
+                    : isReady
                     ? 'border-emerald-500 bg-emerald-50/25'
                     : urgency.isUrgent
                     ? 'border-red-500'
@@ -282,6 +300,15 @@ export const LojaView: React.FC<LojaViewProps> = ({
                         <Phone className="w-3.5 h-3.5 text-amber-600" />
                         <span>{order.customerPhone}</span>
                       </a>
+                      <button
+                        id={`btn-editar-pedido-${order.id}`}
+                        onClick={() => setOrderToEdit(order)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 hover:bg-amber-100 active:scale-95 rounded-lg text-xs font-black text-amber-950 border border-amber-300 cursor-pointer shadow-xs transition-all"
+                        title="Editar dados deste pedido (cliente, fotos, serviços, valores, prazo)"
+                      >
+                        <Edit3 className="w-3.5 h-3.5 text-amber-700 stroke-[2.5]" />
+                        <span>EDITAR PEDIDO</span>
+                      </button>
                     </div>
                   </div>
 
@@ -393,13 +420,22 @@ export const LojaView: React.FC<LojaViewProps> = ({
                     </span>
                   </div>
 
-                  <div
-                    className={`p-3 rounded-2xl border-2 flex-1 flex items-center justify-center text-center ${urgency.bgClass} ${urgency.borderClass}`}
-                  >
-                    <span className={`font-black text-sm uppercase ${urgency.colorClass}`}>
-                      {urgency.label}
-                    </span>
-                  </div>
+                  {isDelivered ? (
+                    <div className="p-3 rounded-2xl border-2 border-emerald-300 bg-emerald-50 flex-1 flex items-center justify-center text-center">
+                      <span className="font-black text-sm uppercase text-emerald-800 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        PEDIDO ENTREGUE AO CLIENTE
+                      </span>
+                    </div>
+                  ) : (
+                    <div
+                      className={`p-3 rounded-2xl border-2 flex-1 flex items-center justify-center text-center ${urgency.bgClass} ${urgency.borderClass}`}
+                    >
+                      <span className={`font-black text-sm uppercase ${urgency.colorClass}`}>
+                        {urgency.label}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Financial Info */}
@@ -426,6 +462,20 @@ export const LojaView: React.FC<LojaViewProps> = ({
                     </span>
                   )}
                 </div>
+
+                {/* Botão de Edição Rápida para Pedidos em Aberto */}
+                {!isReady && !isDelivered && (
+                  <div className="mt-3 pt-2.5 border-t border-stone-200">
+                    <button
+                      id={`btn-loja-editar-detalhes-${order.id}`}
+                      onClick={() => setOrderToEdit(order)}
+                      className="w-full py-2.5 px-4 rounded-2xl bg-amber-50 hover:bg-amber-100 active:scale-98 text-amber-950 font-black text-xs uppercase tracking-wider border-2 border-amber-300 flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs"
+                    >
+                      <Edit3 className="w-4 h-4 text-amber-700 stroke-[2.5]" />
+                      <span>EDITAR DADOS OU SERVIÇOS DESTE PEDIDO</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* 4. IF READY: SINGLE ALL-IN-ONE BUTTON */}
                 {/* "quando clicar em enviar mensagem para o cliente depois de pronta ela da baixa automaticamente, tudo em apenas um botão, e a mensagem de script deve ser sem emojis" */}
@@ -544,6 +594,16 @@ export const LojaView: React.FC<LojaViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* MODAL DE EDIÇÃO DE PEDIDO ENVIADO */}
+      {orderToEdit && (
+        <EditarPedidoModal
+          isOpen={Boolean(orderToEdit)}
+          order={orderToEdit}
+          onClose={() => setOrderToEdit(null)}
+          onSaveOrder={handleSaveEditedOrder}
+        />
       )}
     </div>
   );

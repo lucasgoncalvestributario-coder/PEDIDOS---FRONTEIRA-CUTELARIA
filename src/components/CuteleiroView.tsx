@@ -395,9 +395,9 @@ export const CuteleiroView: React.FC<CuteleiroViewProps> = ({
           </div>
         ) : (
           filteredOrders.map((order) => {
-            const urgency = calculateUrgency(order.deliveryDate);
-            const isReady = order.status === 'PRONTA';
             const isDelivered = order.status === 'ENTREGUE';
+            const urgency = calculateUrgency(order.deliveryDate, isDelivered);
+            const isReady = order.status === 'PRONTA';
             const orderPhotos = order.photos && order.photos.length > 0 ? order.photos : (order.photoUrl ? [order.photoUrl] : []);
 
             return (
@@ -570,17 +570,26 @@ export const CuteleiroView: React.FC<CuteleiroViewProps> = ({
                       </span>
                     </div>
 
-                    {/* Urgency Highlight Banner */}
-                    <div
-                      className={`p-3.5 rounded-2xl border-2 text-center flex items-center justify-center gap-2 ${urgency.bgClass} ${urgency.borderClass}`}
-                    >
-                      {urgency.isUrgent && (
-                        <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 animate-pulse" />
-                      )}
-                      <span className={`font-black text-base sm:text-lg uppercase ${urgency.colorClass}`}>
-                        {urgency.label}
-                      </span>
-                    </div>
+                    {/* Urgency Highlight Banner or Entregue Banner */}
+                    {isDelivered ? (
+                      <div className="p-3.5 rounded-2xl border-2 border-emerald-300 bg-emerald-50 text-center flex items-center justify-center gap-2">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
+                        <span className="font-black text-base uppercase text-emerald-800">
+                          PEDIDO ENTREGUE AO CLIENTE
+                        </span>
+                      </div>
+                    ) : (
+                      <div
+                        className={`p-3.5 rounded-2xl border-2 text-center flex items-center justify-center gap-2 ${urgency.bgClass} ${urgency.borderClass}`}
+                      >
+                        {urgency.isUrgent && (
+                          <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 animate-pulse" />
+                        )}
+                        <span className={`font-black text-base sm:text-lg uppercase ${urgency.colorClass}`}>
+                          {urgency.label}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Valor Total do Pedido / Serviço */}

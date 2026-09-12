@@ -3,6 +3,7 @@ import { UserRole, Order } from './types';
 import {
   fetchOrders,
   createOrder,
+  updateOrder,
   markOrderReady,
   deliverOrder,
   deleteOrder,
@@ -183,6 +184,13 @@ export default function App() {
           prev.map((o) => (o.id === delivered.id ? delivered : o))
         );
       }
+
+      if (event.type === 'ORDER_UPDATED' && event.order) {
+        const updated = event.order;
+        setOrders((prev) =>
+          prev.map((o) => (o.id === updated.id ? updated : o))
+        );
+      }
     });
 
     return () => {
@@ -208,6 +216,19 @@ export default function App() {
       createdBy: 'LOJA',
     });
     setOrders((prev) => [newOrder, ...prev.filter((o) => o.id !== newOrder.id)]);
+  };
+
+  // Update order handler (Loja edits order)
+  const handleUpdateOrder = async (orderId: string, updatedData: Partial<Order>) => {
+    const existing = orders.find((o) => o.id === orderId);
+    // Se o pedido foi editado e estava como PRONTA, voltar para PENDENTE para o cuteleiro saber que houve alteração
+    const newStatus = existing?.status === 'ENTREGUE' ? 'ENTREGUE' : 'PENDENTE';
+
+    const updated = await updateOrder(orderId, {
+      ...updatedData,
+      status: newStatus,
+    });
+    setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
   };
 
   // Mark order ready handler (Cuteleiro)
@@ -323,6 +344,7 @@ export default function App() {
             orders={orders}
             onOpenNovoPedido={() => setIsNovoPedidoOpen(true)}
             onDeliverOrder={handleDeliverOrder}
+            onUpdateOrder={handleUpdateOrder}
             onDeleteOrder={handleDeleteOrder}
             onOpenPhoto={handleOpenPhoto}
           />

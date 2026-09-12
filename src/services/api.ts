@@ -4,6 +4,7 @@ import {
   initFirebase,
   isFirebaseActive,
   createOrderInFirestore,
+  updateOrderInFirestore,
   updateOrderReadyInFirestore,
   updateOrderDeliveredInFirestore,
   deleteOrderFromFirestore,
@@ -326,6 +327,49 @@ export async function deliverOrder(orderId: string): Promise<Order> {
 }
 
 /**
+ * Atualiza os dados de um pedido editado pela Loja diretamente no Firestore
+ */
+export async function updateOrder(orderId: string, orderData: Partial<Order>): Promise<Order> {
+  initFirebase();
+  const now = new Date().toISOString();
+  const existing = inMemoryOrders.find((o) => o.id === orderId);
+
+  const cleanUpdate: Partial<Order> = {
+    ...orderData,
+    updatedAt: now,
+  };
+
+  const updated: Order = existing
+    ? { ...existing, ...cleanUpdate }
+    : ({ ...cleanUpdate, id: orderId } as Order);
+
+  // 1. Atualizar diretamente no Firestore (pedidosfronteira)
+  if (isFirebaseActive()) {
+    try {
+      await updateOrderInFirestore(orderId, cleanUpdate);
+      console.info(`[Firestore] Pedido ${orderId} atualizado com sucesso em pedidosfronteira.`);
+    } catch (err) {
+      console.error('[Firestore] Erro ao atualizar pedido:', err);
+    }
+  }
+
+  // 2. Servidor backend opcional se configurado
+  if (API_BASE) {
+    fetch(`${API_BASE}/api/orders/${orderId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cleanUpdate),
+    }).catch((err) => console.warn('[API] Server updateOrder failed:', err));
+  }
+
+  inMemoryOrders = inMemoryOrders.map((o) => (o.id === orderId ? updated : o));
+  saveOfflineCacheOrders(inMemoryOrders);
+  broadcastEventLocally({ type: 'ORDER_UPDATED', order: updated });
+
+  return updated;
+}
+
+/**
  * Exclui um pedido diretamente no Firestore (pedidosfronteira)
  */
 export async function deleteOrder(orderId: string): Promise<void> {
@@ -486,6 +530,8 @@ export function subscribeToRealTimeEvents(callback: RealTimeCallback): () => voi
                 callback({ type: 'ORDER_READY', order: change.order });
               } else if (change.oldStatus !== 'ENTREGUE' && change.order.status === 'ENTREGUE') {
                 callback({ type: 'ORDER_DELIVERED', order: change.order });
+              } else {
+                callback({ type: 'ORDER_UPDATED', order: change.order });
               }
             }
             // 3. Pedido removido

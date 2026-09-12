@@ -286,6 +286,50 @@ app.put('/api/orders/:id/ready', (req: Request, res: Response) => {
   }
 });
 
+// Edit existing order
+app.put('/api/orders/:id', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const orders = readOrders();
+    const orderIndex = orders.findIndex((o) => o.id === id);
+
+    if (orderIndex === -1) {
+      res.status(404).json({ error: 'Pedido não encontrado.' });
+      return;
+    }
+
+    const current = orders[orderIndex];
+    const updateData = req.body;
+
+    const updatedOrder: OrderItem = {
+      ...current,
+      ...updateData,
+      id: current.id,
+      orderNumber: current.orderNumber,
+      updatedAt: new Date().toISOString(),
+    };
+
+    orders[orderIndex] = updatedOrder;
+    writeOrders(orders);
+
+    const logDetails = `Loja editou o Pedido #${updatedOrder.orderNumber} (${updatedOrder.customerName})`;
+    addLog('LOJA', 'PEDIDO_EDITADO', logDetails, updatedOrder.id);
+
+    console.log(`[EDITAR PEDIDO] Pedido #${updatedOrder.orderNumber} atualizado por Loja.`);
+
+    broadcastSSE({
+      type: 'ORDER_UPDATED',
+      order: updatedOrder,
+      message: `Pedido #${updatedOrder.orderNumber} (${updatedOrder.customerName}) foi atualizado pela loja.`,
+    });
+
+    res.json(updatedOrder);
+  } catch (err: unknown) {
+    console.error('Error updating order:', err);
+    res.status(500).json({ error: 'Erro ao atualizar pedido.' });
+  }
+});
+
 // Loja delivers knife (DAR BAIXA)
 app.put('/api/orders/:id/deliver', (req: Request, res: Response) => {
   try {

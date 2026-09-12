@@ -12,7 +12,19 @@ export interface UrgencyInfo {
   borderClass: string;
 }
 
-export function calculateUrgency(deliveryDateStr: string): UrgencyInfo {
+export function calculateUrgency(deliveryDateStr: string, isDelivered: boolean = false): UrgencyInfo {
+  if (isDelivered) {
+    return {
+      diffDays: 0,
+      label: 'PEDIDO ENTREGUE',
+      isUrgent: false,
+      isOverdue: false,
+      colorClass: 'text-emerald-800',
+      bgClass: 'bg-emerald-50',
+      borderClass: 'border-emerald-300',
+    };
+  }
+
   if (!deliveryDateStr) {
     return {
       diffDays: 999,
