@@ -1,6 +1,12 @@
 import React, { useState } from 'react';
 import { Order } from '../types';
-import { calculateUrgency, formatDateBR, formatCurrency } from '../utils/dateUtils';
+import {
+  calculateUrgency,
+  formatDateBR,
+  formatCurrency,
+  generateCustomerPickupMessage,
+  STORE_ADDRESS,
+} from '../utils/dateUtils';
 import { EditarPedidoModal } from './EditarPedidoModal';
 import {
   Plus,
@@ -27,8 +33,6 @@ interface LojaViewProps {
   onDeleteOrder?: (orderId: string) => Promise<void>;
   onOpenPhoto: (photos: string[] | string, initialIndex?: number, customerName?: string) => void;
 }
-
-const STORE_ADDRESS = 'Avenida Minas Gerais, 305 - Anexo ao Posto Irmãos da Estrada.';
 
 export const LojaView: React.FC<LojaViewProps> = ({
   orders,
@@ -106,11 +110,11 @@ export const LojaView: React.FC<LojaViewProps> = ({
     }
   };
 
-  // Build WhatsApp message script (STRICTLY WITHOUT EMOJIS)
+  // Build WhatsApp message script (STRICTLY WITHOUT EMOJIS, WITH REMAINING/FULL PAYMENT INSTRUCTIONS)
   const getWhatsAppRedirectionUrl = (order: Order) => {
-    const cleanPhone = order.customerPhone.replace(/\D/g, '');
+    const cleanPhone = (order.customerPhone || '').replace(/\D/g, '');
     const phoneWithCountry = cleanPhone.startsWith('55') ? cleanPhone : `55${cleanPhone}`;
-    const message = `Olá, ${order.customerName}! Sua faca (Pedido #${order.orderNumber}) está pronta, pode vir retirar.\n\nNosso endereço é: ${STORE_ADDRESS}`;
+    const message = generateCustomerPickupMessage(order);
     return `https://api.whatsapp.com/send?phone=${phoneWithCountry}&text=${encodeURIComponent(message)}`;
   };
 
@@ -480,12 +484,36 @@ export const LojaView: React.FC<LojaViewProps> = ({
                 {/* 4. IF READY: SINGLE ALL-IN-ONE BUTTON */}
                 {/* "quando clicar em enviar mensagem para o cliente depois de pronta ela da baixa automaticamente, tudo em apenas um botão, e a mensagem de script deve ser sem emojis" */}
                 {isReady && (
-                  <div className="mt-4 pt-3 border-t-2 border-emerald-300 space-y-2">
+                  <div className="mt-4 pt-3 border-t-2 border-emerald-300 space-y-3">
                     <div className="text-center">
                       <span className="text-xs font-black uppercase text-emerald-800 flex items-center justify-center gap-1">
                         <CheckCircle className="w-4 h-4" />
                         O cuteleiro concluiu o serviço desta faca!
                       </span>
+                    </div>
+
+                    {/* Visualização do Script com o valor a pagar (total ou restante) */}
+                    <div className="p-3 bg-emerald-50/70 rounded-2xl border-2 border-emerald-200 space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px] font-black uppercase text-emerald-950">
+                        <span>Texto que será enviado no WhatsApp:</span>
+                        <span className="text-[10px] bg-emerald-200/80 px-2 py-0.5 rounded-md font-mono text-emerald-900">
+                          {order.isFullyPaid || (order.paidAmount >= order.totalAmount && order.totalAmount > 0)
+                            ? 'Pago Integral'
+                            : (order.paidAmount || 0) > 0
+                            ? `Restante: ${formatCurrency(Math.max(0, order.totalAmount - (order.paidAmount || 0)))}`
+                            : `Total: ${formatCurrency(order.totalAmount)}`}
+                        </span>
+                      </div>
+                      <div className="p-2.5 bg-white rounded-xl border border-emerald-200/60 text-xs text-stone-800 font-sans leading-relaxed whitespace-pre-line shadow-inner select-text">
+                        {generateCustomerPickupMessage(order)}
+                      </div>
+                      <div className="text-[10px] text-stone-500 font-bold">
+                        {(order.paidAmount || 0) > 0 && !order.isFullyPaid && (order.totalAmount - (order.paidAmount || 0) > 0)
+                          ? `Como já pagou ${formatCurrency(order.paidAmount)} de entrada, o script cobrará apenas o restante de ${formatCurrency(order.totalAmount - order.paidAmount)}.`
+                          : !order.isFullyPaid && (order.paidAmount || 0) === 0
+                          ? `Como não houve entrada, o script cobrará o valor total de ${formatCurrency(order.totalAmount)}.`
+                          : 'Pedido já quitado integralmente.'}
+                      </div>
                     </div>
 
                     <button

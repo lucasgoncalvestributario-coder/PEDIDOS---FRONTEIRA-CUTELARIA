@@ -167,6 +167,42 @@ export function formatCurrency(value: number): string {
   });
 }
 
+export const STORE_ADDRESS = 'Avenida Minas Gerais, 305 - Anexo ao Posto Irmãos da Estrada.';
+
+/**
+ * Gera o texto do script do WhatsApp enviado pela loja ao cliente quando a faca fica pronta.
+ * Regras:
+ * - Sem emojis (requisito estrito do sistema).
+ * - Se já pagou tudo: avisa que está quitado.
+ * - Se pagou uma parte: envia apenas o valor restante a pagar.
+ * - Se não pagou nada de entrada: envia o valor total completo.
+ * - Informa que pode pagar via PIX ou na loja na retirada.
+ */
+export function generateCustomerPickupMessage(order: {
+  orderNumber: number;
+  customerName: string;
+  totalAmount: number;
+  paidAmount?: number;
+  isFullyPaid?: boolean;
+}): string {
+  const total = Number(order.totalAmount) || 0;
+  const paid = Number(order.paidAmount) || 0;
+  const isPaidInFull = Boolean(order.isFullyPaid) || (paid >= total && total > 0);
+  const remaining = Math.max(0, total - paid);
+
+  let paymentText = '';
+
+  if (isPaidInFull || (total > 0 && remaining === 0)) {
+    paymentText = 'Valor do serviço: Pagamento já realizado integralmente.';
+  } else if (paid > 0 && remaining > 0) {
+    paymentText = `Valor restante a pagar: ${formatCurrency(remaining)}.\nVocê pode pagar no PIX que enviamos por aqui ou na loja na retirada.`;
+  } else {
+    paymentText = `Valor total do serviço: ${formatCurrency(total)}.\nVocê pode pagar no PIX que enviamos por aqui ou na loja na retirada.`;
+  }
+
+  return `Olá, ${order.customerName}! Sua faca (Pedido #${order.orderNumber}) está pronta, pode vir retirar.\n\n${paymentText}\n\nNosso endereço é: ${STORE_ADDRESS}`;
+}
+
 export function formatPhone(val: string): string {
   const digits = val.replace(/\D/g, '');
   if (digits.length <= 10) {
