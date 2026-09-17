@@ -47,8 +47,8 @@ export interface ServiceCatalogItem {
 export const PREDEFINED_SERVICES: ServiceCatalogItem[] = [
   {
     name: 'AFIAÇÃO + POLIMENTO + PEQUENOS REPAROS',
-    defaultPrice: 50,
-    badge: 'R$ 50,00',
+    defaultPrice: 100,
+    badge: 'R$ 100,00',
     isCombo: true,
   },
   {
@@ -68,8 +68,8 @@ export const PREDEFINED_SERVICES: ServiceCatalogItem[] = [
   },
   {
     name: 'POLIMENTO',
-    defaultPrice: 0,
-    badge: 'VALOR MANUAL',
+    defaultPrice: 70,
+    badge: 'R$ 70,00',
   },
   {
     name: 'PEQUENOS REPAROS',
@@ -167,7 +167,9 @@ export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
       let defaultPrice = 0;
 
       if (serviceName === 'AFIAÇÃO + POLIMENTO + PEQUENOS REPAROS') {
-        defaultPrice = 50;
+        defaultPrice = 100;
+      } else if (serviceName === 'POLIMENTO') {
+        defaultPrice = 70;
       } else if (serviceName === 'AFIAÇÃO') {
         defaultPrice = 25;
       } else if (serviceName === 'TROCA DE CABO') {

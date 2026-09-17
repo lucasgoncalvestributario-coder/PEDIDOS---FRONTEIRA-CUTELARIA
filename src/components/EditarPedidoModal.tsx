@@ -117,7 +117,9 @@ export const EditarPedidoModal: React.FC<EditarPedidoModalProps> = ({
       let defaultPrice = 0;
 
       if (serviceName === 'AFIAÇÃO + POLIMENTO + PEQUENOS REPAROS') {
-        defaultPrice = 50;
+        defaultPrice = 100;
+      } else if (serviceName === 'POLIMENTO') {
+        defaultPrice = 70;
       } else if (serviceName === 'AFIAÇÃO') {
         defaultPrice = 25;
       } else if (serviceName === 'TROCA DE CABO') {

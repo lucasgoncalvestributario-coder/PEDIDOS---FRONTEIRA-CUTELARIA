@@ -121,23 +121,39 @@ self.addEventListener('message', (event) => {
   }
 });
 
-// Evento para push notification
+// Evento para push notification (desperta o Service Worker mesmo com o app totalmente fechado)
 self.addEventListener('push', (event) => {
-  let data = { title: 'Fronteira Cutelaria', body: 'Novo alerta de pedido!' };
+  let data = {
+    title: 'Fronteira Cutelaria',
+    body: 'Novo alerta de pedido!',
+    tag: 'cutelaria-push-alert',
+    url: '/',
+  };
+
   if (event.data) {
     try {
-      data = event.data.json();
+      data = { ...data, ...event.data.json() };
     } catch {
-      data.body = event.data.text();
+      data.body = event.data.text() || data.body;
     }
   }
 
+  const notificationOptions = {
+    body: data.body,
+    icon: data.icon || '/pwa-192x192.png',
+    badge: data.badge || '/pwa-192x192.png',
+    tag: data.tag || 'cutelaria-push-alert',
+    vibrate: [300, 100, 300, 100, 400],
+    requireInteraction: true,
+    renotify: true,
+    data: {
+      url: data.url || '/',
+      orderId: data.orderId,
+      timestamp: Date.now(),
+    },
+  };
+
   event.waitUntil(
-    self.registration.showNotification(data.title, {
-      body: data.body,
-      icon: '/pwa-192x192.png',
-      badge: '/pwa-192x192.png',
-      requireInteraction: true,
-    })
+    self.registration.showNotification(data.title || 'Fronteira Cutelaria', notificationOptions)
   );
 });

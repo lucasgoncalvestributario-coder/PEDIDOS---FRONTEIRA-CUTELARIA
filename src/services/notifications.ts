@@ -63,7 +63,7 @@ export function isNotificationPersistedActive(): boolean {
 /**
  * Request notification permission and automatically send confirmation notification
  */
-export async function requestNotificationPermission(): Promise<NotificationPermission | 'unsupported'> {
+export async function requestNotificationPermission(role?: string): Promise<NotificationPermission | 'unsupported'> {
   if (!isNotificationSupported()) return 'unsupported';
 
   try {
@@ -74,6 +74,11 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
       } catch {
         // ignore
       }
+      // Ativa inscrição Push no servidor para receber notificações mesmo com o app fechado
+      registerWebPushSubscription(role).catch((err) =>
+        console.warn('[Push] Falha ao registrar Web Push ao conceder permissão:', err)
+      );
+
       // Send the official confirmation notification
       await sendConfirmationNotification();
     }
@@ -81,6 +86,107 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
   } catch (err) {
     console.warn('[Notifications] Erro ao solicitar permissão:', err);
     return Notification.permission;
+  }
+}
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+/**
+ * Registra o dispositivo no serviço de Web Push (PushManager + VAPID).
+ * Permite que notificações cheguem mesmo quando o app está fechado, tela bloqueada ou em segundo plano.
+ */
+export async function registerWebPushSubscription(role?: string): Promise<boolean> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+    return false;
+  }
+
+  try {
+    const reg = await getActiveServiceWorkerRegistration();
+    if (!reg || !('pushManager' in reg)) {
+      console.warn('[Push] PushManager não suportado neste navegador.');
+      return false;
+    }
+
+    // 1. Busca chave pública VAPID do servidor
+    const res = await fetch('/api/push/vapid-public-key');
+    if (!res.ok) {
+      console.warn('[Push] Não foi possível obter chave pública VAPID.');
+      return false;
+    }
+    const { publicKey } = await res.json();
+    if (!publicKey) {
+      return false;
+    }
+
+    // 2. Verifica se já existe inscrição ativa
+    let subscription = await reg.pushManager.getSubscription();
+
+    // 3. Se não houver, inscreve no PushManager
+    if (!subscription) {
+      const convertedKey = urlBase64ToUint8Array(publicKey);
+      subscription = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: convertedKey,
+      });
+    }
+
+    // 4. Envia inscrição ao servidor para armazenamento persistente
+    const subJson = subscription.toJSON();
+    const saveRes = await fetch('/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subscription: subJson,
+        role: role || 'TODOS',
+      }),
+    });
+
+    if (saveRes.ok) {
+      console.info('[Push] Dispositivo inscrito com sucesso para notificações em segundo plano e com app fechado!');
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.warn('[Push] Erro ao registrar inscrição Web Push:', err);
+    return false;
+  }
+}
+
+/**
+ * Dispara notificação push via servidor para todos os celulares e computadores registrados,
+ * mesmo que estejam com o navegador fechado ou em segundo plano.
+ */
+export async function triggerServerPush({
+  title,
+  body,
+  tag,
+  orderId,
+  role,
+}: SystemNotificationOptions & { role?: string }): Promise<void> {
+  try {
+    await fetch('/api/push/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title,
+        body,
+        tag,
+        orderId,
+        role: role || 'TODOS',
+        url: '/',
+      }),
+    });
+  } catch (err) {
+    console.warn('[Push] Erro ao solicitar push no servidor:', err);
   }
 }
 
@@ -237,22 +343,38 @@ export async function sendConfirmationNotification(): Promise<boolean> {
  * Notificação de teste simulando Novo Pedido
  */
 export async function sendTestNewOrderNotification(): Promise<boolean> {
-  return sendSystemNotification({
+  const local = await sendSystemNotification({
     title: 'Fronteira Cutelaria - Novo Pedido #108!',
     body: 'Cliente: TESTE CELULAR | Serviços: Afiação Especial, Polimento',
     tag: 'pedido-novo-teste',
   });
+
+  triggerServerPush({
+    title: 'Fronteira Cutelaria - Novo Pedido #108!',
+    body: 'Cliente: TESTE CELULAR | Serviços: Afiação Especial, Polimento',
+    tag: 'pedido-novo-teste',
+  });
+
+  return local;
 }
 
 /**
  * Notificação de teste simulando Lâmina Pronta
  */
 export async function sendTestReadyNotification(): Promise<boolean> {
-  return sendSystemNotification({
+  const local = await sendSystemNotification({
     title: 'Fronteira Cutelaria - Lâmina Pronta #108!',
     body: 'A peça de TESTE CELULAR (Afiação Especial) está pronta para retirada na loja!',
     tag: 'pedido-pronto-teste',
   });
+
+  triggerServerPush({
+    title: 'Fronteira Cutelaria - Lâmina Pronta #108!',
+    body: 'A peça de TESTE CELULAR (Afiação Especial) está pronta para retirada na loja!',
+    tag: 'pedido-pronto-teste',
+  });
+
+  return local;
 }
 
 /**
@@ -263,12 +385,23 @@ export async function notifyNewOrder(order: Order): Promise<boolean> {
     ? order.services.map((s) => s.name).join(', ')
     : 'Serviço de Cutelaria';
 
-  return sendSystemNotification({
+  const localShown = await sendSystemNotification({
     title: `Fronteira Cutelaria - Novo Pedido #${order.orderNumber}!`,
     body: `Cliente: ${order.customerName} | Serviços: ${serviceSummary}`,
     tag: `pedido-novo-${order.id}`,
     orderId: order.id,
   });
+
+  // Dispara Push via servidor para despertar os celulares mesmo com app fechado
+  triggerServerPush({
+    title: `Fronteira Cutelaria - Novo Pedido #${order.orderNumber}!`,
+    body: `Cliente: ${order.customerName} | Serviços: ${serviceSummary}`,
+    tag: `pedido-novo-${order.id}`,
+    orderId: order.id,
+    role: 'CUTELEIRO',
+  });
+
+  return localShown;
 }
 
 /**
@@ -279,11 +412,22 @@ export async function notifyOrderReady(order: Order): Promise<boolean> {
     ? order.services.map((s) => s.name).join(', ')
     : 'Lâmina';
 
-  return sendSystemNotification({
+  const localShown = await sendSystemNotification({
     title: `Fronteira Cutelaria - Lâmina Pronta #${order.orderNumber}!`,
     body: `A peça de ${order.customerName} (${serviceSummary}) está pronta para retirada na loja!`,
     tag: `pedido-pronto-${order.id}`,
     orderId: order.id,
   });
+
+  // Dispara Push via servidor para despertar os celulares mesmo com app fechado
+  triggerServerPush({
+    title: `Fronteira Cutelaria - Lâmina Pronta #${order.orderNumber}!`,
+    body: `A peça de ${order.customerName} (${serviceSummary}) está pronta para retirada na loja!`,
+    tag: `pedido-pronto-${order.id}`,
+    orderId: order.id,
+    role: 'LOJA',
+  });
+
+  return localShown;
 }
 

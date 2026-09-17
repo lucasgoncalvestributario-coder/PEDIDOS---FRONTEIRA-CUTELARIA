@@ -129,6 +129,18 @@ export const NotificationModal: React.FC<NotificationModalProps> = ({
               </div>
             </div>
 
+            <div className="flex items-start gap-3 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30">
+              <div className="w-8 h-8 rounded-lg bg-amber-500 text-stone-950 flex items-center justify-center flex-shrink-0 font-bold">
+                <Smartphone className="w-4 h-4 stroke-[2.5]" />
+              </div>
+              <div>
+                <strong className="block text-stone-900 text-sm">Chega Mesmo com o App Fechado</strong>
+                <span>
+                  Tecnologia Web Push: a notificação é entregue na barra do celular mesmo se o app estiver fechado ou em segundo plano.
+                </span>
+              </div>
+            </div>
+
             <div className="flex items-start gap-3 p-2.5 rounded-xl bg-stone-50 border border-stone-200/80">
               <div className="w-8 h-8 rounded-lg bg-stone-900 text-amber-400 flex items-center justify-center flex-shrink-0 font-bold">
                 <ShieldCheck className="w-4 h-4 stroke-[2.5]" />

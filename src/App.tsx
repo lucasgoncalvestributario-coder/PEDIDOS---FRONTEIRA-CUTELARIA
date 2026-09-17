@@ -15,6 +15,7 @@ import {
   notifyNewOrder,
   notifyOrderReady,
   requestNotificationPermission,
+  registerWebPushSubscription,
 } from './services/notifications';
 import { Bell, CheckCircle2 } from 'lucide-react';
 import { Header } from './components/Header';
@@ -198,16 +199,20 @@ export default function App() {
     };
   }, [loadInitialData]);
 
-  // Request browser notification permission once
+  // Request browser notification permission once and register Web Push for background/closed app notifications
   useEffect(() => {
     try {
-      if ('Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission().catch(() => {});
+      if ('Notification' in window) {
+        if (Notification.permission === 'granted') {
+          registerWebPushSubscription(role || 'TODOS').catch(() => {});
+        } else if (Notification.permission === 'default') {
+          requestNotificationPermission(role || 'TODOS').catch(() => {});
+        }
       }
     } catch {
       // ignore
     }
-  }, []);
+  }, [role]);
 
   // Create order handler
   const handleCreateOrder = async (orderData: Partial<Order>) => {
