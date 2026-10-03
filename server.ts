@@ -182,7 +182,7 @@ interface OrderItem {
 interface IntegrationLog {
   id: string;
   timestamp: string;
-  source: 'LOJA' | 'CUTELEIRO' | 'SERVIDOR' | 'SISTEMA';
+  source: 'LOJA' | 'CUTELEIRO' | 'GUASQUEIRO' | 'SERVIDOR' | 'SISTEMA';
   action: string;
   details: string;
   orderId?: string;
@@ -451,6 +451,17 @@ app.post('/api/orders', (req: Request, res: Response) => {
       orderId: newOrder.id,
       role: 'CUTELEIRO',
     }).catch((pushErr) => console.warn('[Push] Erro ao enviar push para cuteleiro:', pushErr));
+
+    if (newOrder.services.some((s) => s.name && s.name.toUpperCase().includes('BAINHA'))) {
+      sendPushToAll({
+        title: `Fronteira Cutelaria - Nova Bainha #${nextNum}!`,
+        body: `Cliente: ${newOrder.customerName} | Nova bainha para confecção`,
+        tag: `bainha-nova-${newOrder.id}`,
+        url: '/guasqueiro',
+        orderId: newOrder.id,
+        role: 'GUASQUEIRO',
+      }).catch((pushErr) => console.warn('[Push] Erro ao enviar push para guasqueiro:', pushErr));
+    }
 
     res.status(201).json(newOrder);
   } catch (err: unknown) {

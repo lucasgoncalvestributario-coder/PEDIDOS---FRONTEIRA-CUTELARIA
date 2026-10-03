@@ -6,6 +6,8 @@ import {
   formatCurrency,
   generateCustomerPickupMessage,
   STORE_ADDRESS,
+  PIX_KEY,
+  PIX_BENEFICIARY,
 } from '../utils/dateUtils';
 import { EditarPedidoModal } from './EditarPedidoModal';
 import {
@@ -23,6 +25,7 @@ import {
   History,
   Trash2,
   Edit3,
+  Copy,
 } from 'lucide-react';
 
 interface LojaViewProps {
@@ -49,6 +52,7 @@ export const LojaView: React.FC<LojaViewProps> = ({
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
   const [orderToEdit, setOrderToEdit] = useState<Order | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [copiedPixId, setCopiedPixId] = useState<string | null>(null);
 
   const handleSaveEditedOrder = async (orderId: string, updatedData: Partial<Order>) => {
     try {
@@ -408,6 +412,19 @@ export const LojaView: React.FC<LojaViewProps> = ({
                             Obs: {srv.notes}
                           </span>
                         )}
+                        {srv.name.toUpperCase().includes('BAINHA') && (
+                          <div className="pl-3 mt-1">
+                            {order.bainhaStatus === 'PRONTA' ? (
+                              <span className="text-[10px] font-black text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-300 inline-flex items-center gap-1">
+                                ✓ Bainha Concluída pelo Guasqueiro
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-black text-amber-900 bg-amber-100 px-2 py-0.5 rounded-md border border-amber-300 inline-flex items-center gap-1">
+                                ⏳ Confecção com o Guasqueiro
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -492,27 +509,49 @@ export const LojaView: React.FC<LojaViewProps> = ({
                       </span>
                     </div>
 
-                    {/* Visualização do Script com o valor a pagar (total ou restante) */}
+                    {/* Visualização do Script com o valor a pagar (total ou restante) e PIX */}
                     <div className="p-3 bg-emerald-50/70 rounded-2xl border-2 border-emerald-200 space-y-1.5">
                       <div className="flex items-center justify-between text-[11px] font-black uppercase text-emerald-950">
                         <span>Texto que será enviado no WhatsApp:</span>
-                        <span className="text-[10px] bg-emerald-200/80 px-2 py-0.5 rounded-md font-mono text-emerald-900">
-                          {order.isFullyPaid || (order.paidAmount >= order.totalAmount && order.totalAmount > 0)
-                            ? 'Pago Integral'
-                            : (order.paidAmount || 0) > 0
-                            ? `Restante: ${formatCurrency(Math.max(0, order.totalAmount - (order.paidAmount || 0)))}`
-                            : `Total: ${formatCurrency(order.totalAmount)}`}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(PIX_KEY);
+                              setCopiedPixId(order.id);
+                              setTimeout(() => setCopiedPixId(null), 2500);
+                            }}
+                            className="text-[10px] bg-amber-100 hover:bg-amber-200 active:scale-95 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-md font-bold flex items-center gap-1 transition-all cursor-pointer"
+                            title="Copiar chave PIX"
+                          >
+                            <Copy className="w-3 h-3" />
+                            {copiedPixId === order.id ? 'PIX Copiado!' : 'Copiar PIX'}
+                          </button>
+                          <span className="text-[10px] bg-emerald-200/80 px-2 py-0.5 rounded-md font-mono text-emerald-900">
+                            {order.isFullyPaid || (order.paidAmount >= order.totalAmount && order.totalAmount > 0)
+                              ? 'Pago Integral'
+                              : (order.paidAmount || 0) > 0
+                              ? `Restante: ${formatCurrency(Math.max(0, order.totalAmount - (order.paidAmount || 0)))}`
+                              : `Total: ${formatCurrency(order.totalAmount)}`}
+                          </span>
+                        </div>
                       </div>
                       <div className="p-2.5 bg-white rounded-xl border border-emerald-200/60 text-xs text-stone-800 font-sans leading-relaxed whitespace-pre-line shadow-inner select-text">
                         {generateCustomerPickupMessage(order)}
                       </div>
-                      <div className="text-[10px] text-stone-500 font-bold">
-                        {(order.paidAmount || 0) > 0 && !order.isFullyPaid && (order.totalAmount - (order.paidAmount || 0) > 0)
-                          ? `Como já pagou ${formatCurrency(order.paidAmount)} de entrada, o script cobrará apenas o restante de ${formatCurrency(order.totalAmount - order.paidAmount)}.`
-                          : !order.isFullyPaid && (order.paidAmount || 0) === 0
-                          ? `Como não houve entrada, o script cobrará o valor total de ${formatCurrency(order.totalAmount)}.`
-                          : 'Pedido já quitado integralmente.'}
+                      <div className="text-[10px] text-stone-500 font-bold flex flex-wrap items-center justify-between gap-1">
+                        <span>
+                          {(order.paidAmount || 0) > 0 && !order.isFullyPaid && (order.totalAmount - (order.paidAmount || 0) > 0)
+                            ? `Como já pagou ${formatCurrency(order.paidAmount)} de entrada, o script cobrará apenas o restante de ${formatCurrency(order.totalAmount - order.paidAmount)} junto ao PIX.`
+                            : !order.isFullyPaid && (order.paidAmount || 0) === 0
+                            ? `Como não houve entrada, o script cobrará o valor total de ${formatCurrency(order.totalAmount)} junto ao PIX.`
+                            : 'Pedido já quitado integralmente.'}
+                        </span>
+                        {!order.isFullyPaid && (
+                          <span className="text-amber-900 font-mono text-[10px] bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                            PIX: {PIX_KEY} ({PIX_BENEFICIARY})
+                          </span>
+                        )}
                       </div>
                     </div>
 

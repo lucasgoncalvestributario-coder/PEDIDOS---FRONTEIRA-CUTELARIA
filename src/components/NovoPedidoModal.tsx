@@ -104,8 +104,14 @@ export const CABO_PRICE_OPTIONS = [
   { name: 'MADEIRA NOBRE', price: 90 },
 ];
 
-// Opções de bainha: preta ou marrom, 70 até 11" ou 100 a partir de 12"
+// Opções de bainha: preta ou marrom, 70 até 11" ou 100 a partir de 12" e modelos
 export const BAINHA_COLORS = ['PRETA', 'MARROM'];
+export const BAINHA_MODELS = [
+  'TRADICIONAL COM PASSADOR',
+  'GAÚCHA COM BOCAL',
+  'SAQUE RÁPIDO',
+  'SOB MEDIDA',
+];
 export const BAINHA_SIZES = [
   { label: 'ATÉ 11 POLEGADAS', price: 70 },
   { label: 'A PARTIR DE 12 POLEGADAS', price: 100 },
@@ -220,23 +226,36 @@ export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
     );
   };
 
-  // Funções específicas para Bainha (Preta/Marrom e Tamanho da Lâmina)
+  // Funções específicas para Bainha (Preta/Marrom, Modelo e Tamanho da Lâmina)
   const parseBainhaDetails = (details?: string) => {
     const d = (details || '').toUpperCase();
     const color = d.includes('MARROM') ? 'MARROM' : 'PRETA';
     const isLarge = d.includes('12 POLEGADAS') || d.includes('12"') || d.includes('A PARTIR');
     const size = isLarge ? 'A PARTIR DE 12 POLEGADAS' : 'ATÉ 11 POLEGADAS';
-    return { color, size };
+
+    let model = 'TRADICIONAL COM PASSADOR';
+    if (d.includes('GAÚCHA') || d.includes('GAUCHA') || d.includes('BOCAL')) {
+      model = 'GAÚCHA COM BOCAL';
+    } else if (d.includes('SAQUE RÁPIDO') || d.includes('SAQUE RAPIDO')) {
+      model = 'SAQUE RÁPIDO';
+    } else if (d.includes('SOB MEDIDA')) {
+      model = 'SOB MEDIDA';
+    } else if (d.includes('MODELO:')) {
+      const match = (details || '').match(/MODELO:\s*([^|•;,\n]+)/i);
+      if (match && match[1]) model = match[1].trim();
+    }
+
+    return { color, size, model };
   };
 
-  const updateBainha = (color: string, size: string) => {
+  const updateBainha = (color: string, size: string, model: string = 'TRADICIONAL COM PASSADOR') => {
     const price = size === 'A PARTIR DE 12 POLEGADAS' ? 100 : 70;
     setSelectedServices((prev) =>
       prev.map((s) =>
         s.name === 'BAINHA'
           ? {
               ...s,
-              details: `${color} (${size})`,
+              details: `${color} • ${model} (${size})`,
               price,
             }
           : s
@@ -572,7 +591,7 @@ export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
                             </label>
                             <div className="grid grid-cols-2 gap-2">
                               {BAINHA_COLORS.map((cor) => {
-                                const { color: currColor, size: currSize } = parseBainhaDetails(
+                                const { color: currColor, size: currSize, model: currModel } = parseBainhaDetails(
                                   srv.details
                                 );
                                 const isColorSelected = currColor === cor;
@@ -580,7 +599,7 @@ export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
                                   <button
                                     key={cor}
                                     type="button"
-                                    onClick={() => updateBainha(cor, currSize)}
+                                    onClick={() => updateBainha(cor, currSize, currModel)}
                                     className={`py-2.5 px-3 rounded-xl text-xs font-black uppercase border-2 transition-all flex items-center justify-center gap-2 cursor-pointer ${
                                       isColorSelected
                                         ? 'bg-stone-950 text-amber-400 border-stone-950 shadow-sm'
@@ -597,11 +616,39 @@ export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
 
                           <div>
                             <label className="text-xs font-black uppercase text-stone-700 block mb-1">
-                              2. COMPRIMENTO DA LÂMINA:
+                              2. MODELO DA BAINHA (PARA O GUASQUEIRO):
+                            </label>
+                            <div className="grid grid-cols-2 gap-2">
+                              {BAINHA_MODELS.map((mod) => {
+                                const { color: currColor, size: currSize, model: currModel } = parseBainhaDetails(
+                                  srv.details
+                                );
+                                const isModelSelected = currModel === mod;
+                                return (
+                                  <button
+                                    key={mod}
+                                    type="button"
+                                    onClick={() => updateBainha(currColor, currSize, mod)}
+                                    className={`p-2 rounded-xl text-[11px] font-black uppercase border-2 transition-all text-center cursor-pointer ${
+                                      isModelSelected
+                                        ? 'bg-amber-800 text-amber-100 border-amber-950 shadow-sm'
+                                        : 'bg-white text-stone-800 border-stone-300 hover:bg-stone-100'
+                                    }`}
+                                  >
+                                    {mod}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-black uppercase text-stone-700 block mb-1">
+                              3. COMPRIMENTO DA LÂMINA:
                             </label>
                             <div className="grid grid-cols-2 gap-2">
                               {BAINHA_SIZES.map((tamanho) => {
-                                const { color: currColor, size: currSize } = parseBainhaDetails(
+                                const { color: currColor, size: currSize, model: currModel } = parseBainhaDetails(
                                   srv.details
                                 );
                                 const isSizeSelected = currSize === tamanho.label;
@@ -609,7 +656,7 @@ export const NovoPedidoModal: React.FC<NovoPedidoModalProps> = ({
                                   <button
                                     key={tamanho.label}
                                     type="button"
-                                    onClick={() => updateBainha(currColor, tamanho.label)}
+                                    onClick={() => updateBainha(currColor, tamanho.label, currModel)}
                                     className={`py-2.5 px-3 rounded-xl text-xs font-black uppercase border-2 transition-all flex flex-col items-center justify-center cursor-pointer ${
                                       isSizeSelected
                                         ? 'bg-amber-500 text-stone-950 border-amber-600 shadow-sm'

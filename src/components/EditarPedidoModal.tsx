@@ -6,6 +6,7 @@ import {
   PREDEFINED_SERVICES,
   CABO_PRICE_OPTIONS,
   BAINHA_COLORS,
+  BAINHA_MODELS,
   BAINHA_SIZES,
 } from './NovoPedidoModal';
 import {
@@ -183,16 +184,29 @@ export const EditarPedidoModal: React.FC<EditarPedidoModalProps> = ({
     const color = d.includes('MARROM') ? 'MARROM' : 'PRETA';
     const isLarge = d.includes('12 POLEGADAS') || d.includes('12"') || d.includes('A PARTIR');
     const size = isLarge ? 'A PARTIR DE 12 POLEGADAS' : 'ATÉ 11 POLEGADAS';
-    return { color, size };
+
+    let model = 'TRADICIONAL COM PASSADOR';
+    if (d.includes('GAÚCHA') || d.includes('GAUCHA') || d.includes('BOCAL')) {
+      model = 'GAÚCHA COM BOCAL';
+    } else if (d.includes('SAQUE RÁPIDO') || d.includes('SAQUE RAPIDO')) {
+      model = 'SAQUE RÁPIDO';
+    } else if (d.includes('SOB MEDIDA')) {
+      model = 'SOB MEDIDA';
+    } else if (d.includes('MODELO:')) {
+      const match = (details || '').match(/MODELO:\s*([^|•;,\n]+)/i);
+      if (match && match[1]) model = match[1].trim();
+    }
+
+    return { color, size, model };
   };
 
-  const updateBainha = (color: string, size: string) => {
+  const updateBainha = (color: string, size: string, model: string = 'TRADICIONAL COM PASSADOR') => {
     const price = size === 'A PARTIR DE 12 POLEGADAS' ? 100 : 70;
     const updated = selectedServices.map((s) =>
       s.name === 'BAINHA'
         ? {
             ...s,
-            details: `${color} (${size})`,
+            details: `${color} • ${model} (${size})`,
             price,
           }
         : s
@@ -605,7 +619,7 @@ export const EditarPedidoModal: React.FC<EditarPedidoModalProps> = ({
                                 <button
                                   key={cor}
                                   type="button"
-                                  onClick={() => updateBainha(cor, bainhaData.size)}
+                                  onClick={() => updateBainha(cor, bainhaData.size, bainhaData.model)}
                                   className={`py-1.5 px-2 rounded-lg text-xs font-black uppercase border transition-all ${
                                     isSelected
                                       ? 'bg-amber-500 text-stone-950 border-amber-400'
@@ -613,6 +627,31 @@ export const EditarPedidoModal: React.FC<EditarPedidoModalProps> = ({
                                   }`}
                                 >
                                   {cor}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        <div>
+                          <span className="text-[11px] font-black uppercase text-amber-400 block mb-1">
+                            MODELO DA BAINHA (PARA O GUASQUEIRO):
+                          </span>
+                          <div className="grid grid-cols-2 gap-2">
+                            {BAINHA_MODELS.map((mod) => {
+                              const isSelected = bainhaData.model === mod;
+                              return (
+                                <button
+                                  key={mod}
+                                  type="button"
+                                  onClick={() => updateBainha(bainhaData.color, bainhaData.size, mod)}
+                                  className={`py-1.5 px-2 rounded-lg text-[11px] font-black uppercase border transition-all text-center ${
+                                    isSelected
+                                      ? 'bg-amber-500 text-stone-950 border-amber-400'
+                                      : 'bg-stone-900 text-stone-300 border-stone-800 hover:border-stone-700'
+                                  }`}
+                                >
+                                  {mod}
                                 </button>
                               );
                             })}
@@ -630,7 +669,7 @@ export const EditarPedidoModal: React.FC<EditarPedidoModalProps> = ({
                                 <button
                                   key={tamanho.label}
                                   type="button"
-                                  onClick={() => updateBainha(bainhaData.color, tamanho.label)}
+                                  onClick={() => updateBainha(bainhaData.color, tamanho.label, bainhaData.model)}
                                   className={`py-2 px-2 rounded-lg text-left text-xs font-bold border transition-all flex items-center justify-between ${
                                     isSelected
                                       ? 'bg-amber-500 text-stone-950 border-amber-400 font-black'

@@ -18,7 +18,27 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenNotifications,
   isConnected,
 }) => {
-  const isLoja = currentRole === 'LOJA';
+  const roleLabel =
+    currentRole === 'LOJA'
+      ? 'ACESSO DA LOJA'
+      : currentRole === 'CUTELEIRO'
+      ? 'ACESSO DO CUTELEIRO'
+      : 'ACESSO DO GUASQUEIRO';
+
+  const roleTitle =
+    currentRole === 'LOJA'
+      ? 'PEDIDOS DA CUTELARIA'
+      : currentRole === 'CUTELEIRO'
+      ? 'CONTROLE DA CUTELARIA'
+      : 'OFICINA DE BAINHAS';
+
+  const roleBadgeColor =
+    currentRole === 'LOJA'
+      ? 'text-amber-400'
+      : currentRole === 'CUTELEIRO'
+      ? 'text-emerald-400'
+      : 'text-amber-300';
+
   const [notificationStatus, setNotificationStatus] = useState<NotificationPermission | 'unsupported'>('default');
 
   useEffect(() => {
@@ -42,10 +62,10 @@ export const Header: React.FC<HeaderProps> = ({
             />
             <div>
               <span className="text-[10px] sm:text-xs tracking-wider uppercase text-stone-400 font-semibold block">
-                {isLoja ? 'ACESSO DA LOJA' : 'ACESSO DO CUTELEIRO'}
+                {roleLabel}
               </span>
               <h1 className="text-base sm:text-lg md:text-xl font-bold tracking-tight text-white leading-tight">
-                {isLoja ? 'PEDIDOS DA CUTELARIA' : 'CONTROLE DA CUTELARIA'}
+                {roleTitle}
               </h1>
             </div>
           </div>
@@ -98,7 +118,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="btn-switch-role"
               onClick={onSwitchRole}
-              title="Trocar entre Loja e Cuteleiro"
+              title="Trocar perfil de acesso (Loja / Cuteleiro / Guasqueiro)"
               className="px-2.5 sm:px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-stone-950 font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
             >
               <ArrowLeftRight className="w-4 h-4 stroke-[2.5]" />
@@ -117,7 +137,7 @@ export const Header: React.FC<HeaderProps> = ({
             </span>
           </div>
           <span className="text-stone-400 font-medium">
-            MODO: <strong className={isLoja ? 'text-amber-400' : 'text-emerald-400'}>{currentRole}</strong>
+            MODO: <strong className={roleBadgeColor}>{currentRole}</strong>
           </span>
         </div>
       </div>

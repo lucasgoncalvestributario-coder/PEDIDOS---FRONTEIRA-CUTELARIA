@@ -19,7 +19,48 @@ import {
   ArrowLeft,
   Trash2,
   DollarSign,
+  TrendingUp,
+  BarChart3,
+  Filter,
 } from 'lucide-react';
+
+const MONTH_NAMES_PT = [
+  'Janeiro',
+  'Fevereiro',
+  'Março',
+  'Abril',
+  'Maio',
+  'Junho',
+  'Julho',
+  'Agosto',
+  'Setembro',
+  'Outubro',
+  'Novembro',
+  'Dezembro',
+];
+
+const getOrderDateObj = (order: Order): Date => {
+  const dateStr = order.deliveredAt || order.completedAt || order.deliveryDate || order.createdAt;
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? new Date() : d;
+};
+
+const getOrderMonthKey = (order: Order): string => {
+  const d = getOrderDateObj(order);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+};
+
+const formatMonthLabel = (key: string): string => {
+  if (!key || key === 'TODOS') return 'Todos os Meses';
+  const parts = key.split('-');
+  if (parts.length < 2) return key;
+  const year = parts[0];
+  const monthNum = parseInt(parts[1], 10);
+  const name = MONTH_NAMES_PT[monthNum - 1] || parts[1];
+  return `${name} de ${year}`;
+};
 
 interface CuteleiroViewProps {
   orders: Order[];
@@ -42,17 +83,65 @@ export const CuteleiroView: React.FC<CuteleiroViewProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<CuteleiroTab>('PENDENCIAS');
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedMonth, setSelectedMonth] = useState<string>('TODOS');
   const [confirmingOrderId, setConfirmingOrderId] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteFeedback, setDeleteFeedback] = useState<string | null>(null);
 
-  // Orders not delivered yet (only LOJA can give baja / ENTREGUE)
+  // Orders not delivered yet (only LOJA can give baixa / ENTREGUE)
   const activeOrders = orders.filter((o) => o.status !== 'ENTREGUE');
 
   // Orders delivered (Histórico)
   const historicoOrders = orders.filter((o) => o.status === 'ENTREGUE');
+
+  // Meses disponíveis com pedidos entregues no histórico
+  const availableMonths = Array.from(
+    new Set(historicoOrders.map(getOrderMonthKey).filter(Boolean))
+  ).sort((a, b) => b.localeCompare(a)); // Mais recentes primeiro
+
+  // Garante que o mês atual esteja na lista mesmo se não houver pedidos entregues ainda
+  const now = new Date();
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  if (!availableMonths.includes(currentMonthKey)) {
+    availableMonths.unshift(currentMonthKey);
+  }
+
+  // Filtragem do Histórico pelo mês selecionado
+  const monthFilteredHistoricoOrders =
+    selectedMonth === 'TODOS'
+      ? historicoOrders
+      : historicoOrders.filter((o) => getOrderMonthKey(o) === selectedMonth);
+
+  // Métricas do Histórico para o mês/período selecionado
+  const totalServicosFeitos = monthFilteredHistoricoOrders.reduce((sum, o) => {
+    return sum + (Array.isArray(o.services) && o.services.length > 0 ? o.services.length : 1);
+  }, 0);
+
+  const valorTotalGeral = monthFilteredHistoricoOrders.reduce((sum, o) => {
+    return sum + (Number(o.totalAmount) || 0);
+  }, 0);
+
+  const totalPedidosFeitos = monthFilteredHistoricoOrders.length;
+
+  // Métricas acumuladas gerais (de todo o histórico) para resumo do botão
+  const totalGeralServicos = historicoOrders.reduce((sum, o) => {
+    return sum + (Array.isArray(o.services) && o.services.length > 0 ? o.services.length : 1);
+  }, 0);
+
+  const totalGeralValor = historicoOrders.reduce((sum, o) => {
+    return sum + (Number(o.totalAmount) || 0);
+  }, 0);
+
+  // Detalhamento dos tipos de serviços executados no período selecionado
+  const servicosDetalhados = monthFilteredHistoricoOrders.reduce((acc, order) => {
+    order.services?.forEach((s) => {
+      const nome = s.name ? s.name.toUpperCase().trim() : 'OUTROS';
+      acc[nome] = (acc[nome] || 0) + 1;
+    });
+    return acc;
+  }, {} as Record<string, number>);
 
   // 1. Pendências: status !== 'PRONTA' and status !== 'ENTREGUE'
   const pendenciasOrders = activeOrders.filter(
@@ -88,7 +177,7 @@ export const CuteleiroView: React.FC<CuteleiroViewProps> = ({
       case 'PRONTOS':
         return prontosOrders;
       case 'HISTORICO':
-        return historicoOrders;
+        return monthFilteredHistoricoOrders;
       case 'TODOS':
       default:
         return activeOrders;
@@ -297,11 +386,16 @@ export const CuteleiroView: React.FC<CuteleiroViewProps> = ({
               : 'bg-white text-stone-800 border-stone-300 hover:bg-stone-50 hover:border-stone-400'
           }`}
         >
-          <div className="flex items-center gap-2.5">
-            <History className="w-5 h-5 text-amber-500 stroke-[2.5]" />
-            <span>HISTÓRICO DE PEDIDOS ENTREGUES</span>
+          <div className="flex items-center gap-2.5 text-left">
+            <History className="w-5 h-5 text-amber-500 stroke-[2.5] flex-shrink-0" />
+            <div>
+              <div className="leading-tight">HISTÓRICO DE PEDIDOS ENTREGUES</div>
+              <div className="text-[11px] font-bold text-stone-500 normal-case mt-0.5">
+                {totalGeralServicos} {totalGeralServicos === 1 ? 'serviço executado' : 'serviços executados'} • {formatCurrency(totalGeralValor)}
+              </div>
+            </div>
           </div>
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-amber-500/20 text-amber-900 border border-amber-400/40">
+          <span className="px-2.5 py-1 rounded-full text-xs font-mono font-bold bg-amber-500/20 text-amber-900 border border-amber-400/40 flex-shrink-0">
             {historicoOrders.length} {historicoOrders.length === 1 ? 'PEDIDO' : 'PEDIDOS'}
           </span>
         </button>
@@ -319,6 +413,160 @@ export const CuteleiroView: React.FC<CuteleiroViewProps> = ({
           className="w-full pl-12 pr-4 py-3.5 bg-white font-bold text-sm uppercase rounded-2xl border-2 border-stone-300 focus:outline-none focus:border-amber-500 shadow-sm"
         />
       </div>
+
+      {/* PAINEL DE DESEMPENHO E VALOR TOTAL DO HISTÓRICO COM FILTRO POR MÊS */}
+      {activeTab === 'HISTORICO' && (
+        <div className="bg-stone-900 text-stone-100 rounded-3xl p-4 sm:p-5 border-2 border-stone-800 shadow-xl space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+          {/* Cabeçalho do Painel com Seletor de Mês */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-stone-800">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 flex-shrink-0">
+                <BarChart3 className="w-5 h-5 stroke-[2.5]" />
+              </div>
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 block">
+                  PAINEL DO CUTELEIRO
+                </span>
+                <h3 className="text-base sm:text-lg font-black uppercase text-white leading-tight">
+                  HISTÓRICO DE SERVIÇOS & FATURAMENTO
+                </h3>
+              </div>
+            </div>
+
+            {/* SELETOR DE MÊS NATIVO / DROPDOWN */}
+            <div className="flex items-center gap-2 bg-stone-950 p-1.5 rounded-2xl border border-stone-800">
+              <Calendar className="w-4 h-4 text-amber-400 ml-2 flex-shrink-0" />
+              <select
+                id="select-mes-historico"
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="bg-transparent text-xs sm:text-sm font-black uppercase text-stone-100 pr-3 py-1 cursor-pointer focus:outline-none"
+              >
+                <option value="TODOS" className="bg-stone-900 text-white">
+                  TODOS OS MESES (ACUMULADO GERAL)
+                </option>
+                {availableMonths.map((mKey) => (
+                  <option key={mKey} value={mKey} className="bg-stone-900 text-white">
+                    {formatMonthLabel(mKey).toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Atalhos Rápidos por Mês (Pílulas horizontais de fácil toque) */}
+          {availableMonths.length > 0 && (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+              <span className="text-[10px] font-black uppercase text-stone-400 flex items-center gap-1 flex-shrink-0 mr-1">
+                <Filter className="w-3 h-3 text-amber-400" />
+                FILTRAR POR MÊS:
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedMonth('TODOS')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase transition-all whitespace-nowrap cursor-pointer ${
+                  selectedMonth === 'TODOS'
+                    ? 'bg-amber-500 text-stone-950 shadow-md font-black'
+                    : 'bg-stone-800 text-stone-300 hover:bg-stone-700 hover:text-white'
+                }`}
+              >
+                GERAL (TODOS)
+              </button>
+              {availableMonths.map((mKey) => (
+                <button
+                  key={mKey}
+                  type="button"
+                  onClick={() => setSelectedMonth(mKey)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase transition-all whitespace-nowrap cursor-pointer ${
+                    selectedMonth === mKey
+                      ? 'bg-amber-500 text-stone-950 shadow-md font-black'
+                      : 'bg-stone-800 text-stone-300 hover:bg-stone-700 hover:text-white'
+                  }`}
+                >
+                  {formatMonthLabel(mKey)}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* OS DOIS GRANDES CARDS: NÚMERO TOTAL DE SERVIÇOS & VALOR TOTAL DE TUDO JUNTO */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            {/* CARD 1: NÚMERO TOTAL DE SERVIÇOS JÁ FEITOS */}
+            <div className="p-4 rounded-2xl bg-stone-950 border border-stone-800 flex items-center justify-between gap-3 shadow-inner">
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-amber-400">
+                  <CheckCircle2 className="w-4 h-4 stroke-[2.5]" />
+                  <span>TOTAL DE SERVIÇOS FEITOS</span>
+                </div>
+                <div className="text-3xl sm:text-4xl font-black font-mono text-white leading-none">
+                  {totalServicosFeitos}
+                </div>
+                <div className="text-[11px] font-bold text-stone-400">
+                  Em {totalPedidosFeitos} {totalPedidosFeitos === 1 ? 'pedido/faca entregue' : 'pedidos/facas entregues'}
+                </div>
+              </div>
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 flex-shrink-0">
+                <Hammer className="w-6 h-6 stroke-[2.5]" />
+              </div>
+            </div>
+
+            {/* CARD 2: VALOR TOTAL DE TUDO JUNTO */}
+            <div className="p-4 rounded-2xl bg-emerald-950/70 border border-emerald-800/80 flex items-center justify-between gap-3 shadow-inner">
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-emerald-400">
+                  <DollarSign className="w-4 h-4 stroke-[2.5]" />
+                  <span>VALOR TOTAL DE TUDO JUNTO</span>
+                </div>
+                <div className="text-2xl sm:text-3xl font-black font-mono text-emerald-300 leading-none">
+                  {formatCurrency(valorTotalGeral)}
+                </div>
+                <div className="text-[11px] font-bold text-emerald-400/80">
+                  Total cobrado em {selectedMonth === 'TODOS' ? 'todos os meses' : formatMonthLabel(selectedMonth)}
+                </div>
+              </div>
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 flex-shrink-0">
+                <TrendingUp className="w-6 h-6 stroke-[2.5]" />
+              </div>
+            </div>
+          </div>
+
+          {/* DETALHAMENTO DOS TIPOS DE SERVIÇOS DO PERÍODO */}
+          {Object.keys(servicosDetalhados).length > 0 && (
+            <div className="pt-2 border-t border-stone-800/80">
+              <span className="text-[10px] font-black uppercase text-stone-400 block mb-2">
+                DETALHAMENTO DOS SERVIÇOS ({selectedMonth === 'TODOS' ? 'GERAL' : formatMonthLabel(selectedMonth).toUpperCase()}):
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(servicosDetalhados).map(([nomeServico, qtd]) => (
+                  <div
+                    key={nomeServico}
+                    className="px-2.5 py-1 bg-stone-950 rounded-xl border border-stone-800 text-xs font-bold text-stone-300 flex items-center gap-1.5"
+                  >
+                    <span className="text-amber-400 font-mono font-black">{qtd}x</span>
+                    <span className="text-stone-200">{nomeServico}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Banner informativo do período selecionado */}
+          {selectedMonth !== 'TODOS' && (
+            <div className="flex items-center justify-between text-xs bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-xl text-amber-300">
+              <span>
+                Filtro ativo: <strong>{formatMonthLabel(selectedMonth)}</strong> ({totalPedidosFeitos} {totalPedidosFeitos === 1 ? 'pedido' : 'pedidos'})
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedMonth('TODOS')}
+                className="text-amber-400 underline font-bold cursor-pointer hover:text-amber-200 ml-2"
+              >
+                Limpar filtro
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ACTIVE TAB LABEL */}
       <div className="flex items-center justify-between px-1">
@@ -344,7 +592,13 @@ export const CuteleiroView: React.FC<CuteleiroViewProps> = ({
             {activeTab === 'HISTORICO' && (
               <>
                 <History className="w-4 h-4 text-amber-600 inline stroke-[2.5]" />
-                <span>HISTÓRICO DE ENTREGAS ({historicoOrders.length})</span>
+                <span>
+                  HISTÓRICO DE ENTREGAS (
+                  {selectedMonth === 'TODOS'
+                    ? historicoOrders.length
+                    : `${monthFilteredHistoricoOrders.length} em ${formatMonthLabel(selectedMonth)}`}
+                  )
+                </span>
               </>
             )}
           </h2>
@@ -389,9 +643,20 @@ export const CuteleiroView: React.FC<CuteleiroViewProps> = ({
                 : activeTab === 'PENDENCIAS'
                 ? 'Todas as facas foram concluídas!'
                 : activeTab === 'HISTORICO'
-                ? 'Nenhum pedido entregue registrado no histórico ainda.'
+                ? selectedMonth === 'TODOS'
+                  ? 'Nenhum pedido entregue registrado no histórico ainda.'
+                  : `Nenhum pedido entregue registrado em ${formatMonthLabel(selectedMonth)}.`
                 : 'Nenhum pedido correspondente ao filtro.'}
             </p>
+            {activeTab === 'HISTORICO' && selectedMonth !== 'TODOS' && (
+              <button
+                type="button"
+                onClick={() => setSelectedMonth('TODOS')}
+                className="px-4 py-2 bg-amber-500 text-stone-950 font-black text-xs uppercase rounded-xl hover:bg-amber-400 cursor-pointer"
+              >
+                VER TODOS OS MESES
+              </button>
+            )}
           </div>
         ) : (
           filteredOrders.map((order) => {
@@ -551,6 +816,19 @@ export const CuteleiroView: React.FC<CuteleiroViewProps> = ({
                           {srv.notes && (
                             <div className="text-xs font-semibold text-stone-700 pl-1">
                               Observação: {srv.notes}
+                            </div>
+                          )}
+                          {srv.name.toUpperCase().includes('BAINHA') && (
+                            <div className="mt-1 pl-1">
+                              {order.bainhaStatus === 'PRONTA' ? (
+                                <span className="text-[11px] font-black text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md border border-emerald-300 inline-flex items-center gap-1">
+                                  ✓ Bainha Concluída pelo Guasqueiro
+                                </span>
+                              ) : (
+                                <span className="text-[11px] font-black text-amber-900 bg-amber-100 px-2 py-0.5 rounded-md border border-amber-300 inline-flex items-center gap-1">
+                                  ⏳ Confecção com o Guasqueiro
+                                </span>
+                              )}
                             </div>
                           )}
                         </div>

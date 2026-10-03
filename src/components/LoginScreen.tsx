@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { UserRole } from '../types';
-import { Store, Hammer, ShieldCheck, Download, Bell, CheckCircle2 } from 'lucide-react';
+import { Store, Hammer, Scissors, ShieldCheck, Download, Bell, CheckCircle2 } from 'lucide-react';
 import { InstallAppModal } from './InstallAppModal';
 import { NotificationModal } from './NotificationModal';
 import { getNotificationPermission } from '../services/notifications';
@@ -161,6 +161,21 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onSelectRole }) => {
             <div className="text-2xl font-black text-white">ACESSO DO CUTELEIRO</div>
             <div className="text-xs font-semibold uppercase tracking-wider text-amber-400">
               Ver pedidos e marcar como pronto
+            </div>
+          </div>
+        </button>
+
+        {/* 3. ACESSO DO GUASQUEIRO */}
+        <button
+          id="btn-login-guasqueiro"
+          onClick={() => onSelectRole('GUASQUEIRO')}
+          className="w-full min-h-[92px] p-5 rounded-2xl bg-gradient-to-r from-amber-900 to-amber-800 hover:from-amber-800 hover:to-amber-700 active:scale-[0.98] text-amber-100 font-black text-2xl tracking-wide shadow-lg border-b-4 border-amber-950 flex items-center justify-center gap-4 transition-all cursor-pointer"
+        >
+          <Scissors className="w-10 h-10 stroke-[2.5] text-amber-300 flex-shrink-0" />
+          <div className="text-left leading-tight">
+            <div className="text-2xl font-black text-white">ACESSO DO GUASQUEIRO</div>
+            <div className="text-xs font-semibold uppercase tracking-wider text-amber-300">
+              Confecção e modelos de bainhas
             </div>
           </div>
         </button>

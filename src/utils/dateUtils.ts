@@ -168,15 +168,17 @@ export function formatCurrency(value: number): string {
 }
 
 export const STORE_ADDRESS = 'Avenida Minas Gerais, 305 - Anexo ao Posto Irmãos da Estrada.';
+export const PIX_KEY = 'goncalvessc2023@icloud.com';
+export const PIX_BENEFICIARY = 'VICTORIA GONCALVES';
 
 /**
  * Gera o texto do script do WhatsApp enviado pela loja ao cliente quando a faca fica pronta.
  * Regras:
  * - Sem emojis (requisito estrito do sistema).
  * - Se já pagou tudo: avisa que está quitado.
- * - Se pagou uma parte: envia apenas o valor restante a pagar.
- * - Se não pagou nada de entrada: envia o valor total completo.
- * - Informa que pode pagar via PIX ou na loja na retirada.
+ * - Se pagou uma parte: envia apenas o valor restante a pagar com a chave PIX e nome.
+ * - Se não pagou nada de entrada: envia o valor total completo com a chave PIX e nome.
+ * - Chave PIX: goncalvessc2023@icloud.com (VICTORIA GONCALVES) para pagamento imediato ou na loja na retirada.
  */
 export function generateCustomerPickupMessage(order: {
   orderNumber: number;
@@ -195,9 +197,9 @@ export function generateCustomerPickupMessage(order: {
   if (isPaidInFull || (total > 0 && remaining === 0)) {
     paymentText = 'Valor do serviço: Pagamento já realizado integralmente.';
   } else if (paid > 0 && remaining > 0) {
-    paymentText = `Valor restante a pagar: ${formatCurrency(remaining)}.\nVocê pode pagar no PIX que enviamos por aqui ou na loja na retirada.`;
+    paymentText = `Valor restante a pagar: ${formatCurrency(remaining)}.\n\nCaso prefira pagar agora via PIX:\nChave PIX: ${PIX_KEY}\nNome: ${PIX_BENEFICIARY}\n\nOu se preferir, o pagamento pode ser feito diretamente na loja no momento da retirada.`;
   } else {
-    paymentText = `Valor total do serviço: ${formatCurrency(total)}.\nVocê pode pagar no PIX que enviamos por aqui ou na loja na retirada.`;
+    paymentText = `Valor total do serviço: ${formatCurrency(total)}.\n\nCaso prefira pagar agora via PIX:\nChave PIX: ${PIX_KEY}\nNome: ${PIX_BENEFICIARY}\n\nOu se preferir, o pagamento pode ser feito diretamente na loja no momento da retirada.`;
   }
 
   return `Olá, ${order.customerName}! Sua faca (Pedido #${order.orderNumber}) está pronta, pode vir retirar.\n\n${paymentText}\n\nNosso endereço é: ${STORE_ADDRESS}`;
@@ -264,4 +266,64 @@ export function playNotificationChime(type: 'new_order' | 'ready' | 'delivered')
   } catch (e) {
     console.warn('Audio chime could not play:', e);
   }
+}
+
+export interface ExtractedBainhaInfo {
+  hasBainha: boolean;
+  color: string;
+  model: string;
+  size: string;
+  notes?: string;
+  fullBadge: string;
+}
+
+/**
+ * Identifica e extrai os dados exclusivos de Bainha (cor, modelo, tamanho, notas)
+ * de um pedido para exibição limpa no acesso do Guasqueiro.
+ */
+export function extractBainhaInfo(
+  services?: { name: string; details?: string; notes?: string; price?: number }[]
+): ExtractedBainhaInfo | null {
+  if (!services || !Array.isArray(services)) return null;
+
+  const bainhaService = services.find(
+    (s) => s.name && s.name.toUpperCase().includes('BAINHA')
+  );
+  if (!bainhaService) return null;
+
+  const combined = `${bainhaService.name} ${bainhaService.details || ''} ${bainhaService.notes || ''}`.toUpperCase();
+
+  // 1. Cor da bainha
+  let color = 'PRETA';
+  if (combined.includes('MARROM')) color = 'MARROM';
+  else if (combined.includes('NATURAL') || combined.includes('CARAMELO') || combined.includes('HAVANA')) color = 'NATURAL';
+  else if (combined.includes('PRETA') || combined.includes('PRETO')) color = 'PRETA';
+
+  // 2. Tamanho da lâmina para a bainha
+  let size = 'ATÉ 11 POLEGADAS';
+  if (combined.includes('12 POLEGADAS') || combined.includes('12"') || combined.includes('A PARTIR')) {
+    size = 'A PARTIR DE 12 POLEGADAS';
+  }
+
+  // 3. Modelo da bainha
+  let model = 'TRADICIONAL COM PASSADOR';
+  if (combined.includes('GAÚCHA') || combined.includes('GAUCHA') || combined.includes('BOCAL')) {
+    model = 'GAÚCHA COM BOCAL';
+  } else if (combined.includes('SAQUE RÁPIDO') || combined.includes('SAQUE RAPIDO')) {
+    model = 'SAQUE RÁPIDO';
+  } else if (combined.includes('SOB MEDIDA')) {
+    model = 'SOB MEDIDA';
+  } else if (bainhaService.details && /MODELO:\s*([^|;,\n]+)/i.test(bainhaService.details)) {
+    const match = bainhaService.details.match(/MODELO:\s*([^|;,\n]+)/i);
+    if (match && match[1]) model = match[1].trim();
+  }
+
+  return {
+    hasBainha: true,
+    color,
+    model,
+    size,
+    notes: bainhaService.notes,
+    fullBadge: `BAINHA ${color} • ${model} (${size})`,
+  };
 }

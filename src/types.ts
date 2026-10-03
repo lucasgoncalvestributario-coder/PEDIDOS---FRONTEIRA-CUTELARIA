@@ -7,6 +7,8 @@ export interface ServiceItem {
   price?: number; // valor cobrado por este serviço específico
 }
 
+export type UserRole = 'LOJA' | 'CUTELEIRO' | 'GUASQUEIRO';
+
 export interface Order {
   id: string;
   orderNumber: number;
@@ -20,6 +22,10 @@ export interface Order {
   photoUrl: string;
   photos?: string[]; // Multiple photos of the knife
   status: OrderStatus;
+  bainhaStatus?: 'PENDENTE' | 'EM PRODUÇÃO' | 'PRONTA';
+  bainhaCompletedAt?: string;
+  bainhaFinalizada?: boolean;
+  bainhaFinalizadaAt?: string;
   createdAt: string;
   completedAt?: string;
   deliveredAt?: string;
@@ -27,12 +33,10 @@ export interface Order {
   updatedAt: string;
 }
 
-export type UserRole = 'LOJA' | 'CUTELEIRO';
-
 export interface IntegrationLog {
   id: string;
   timestamp: string;
-  source: 'LOJA' | 'CUTELEIRO' | 'SERVIDOR' | 'SISTEMA';
+  source: 'LOJA' | 'CUTELEIRO' | 'GUASQUEIRO' | 'SERVIDOR' | 'SISTEMA';
   action: string;
   details: string;
   orderId?: string;

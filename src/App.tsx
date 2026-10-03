@@ -22,6 +22,7 @@ import { Header } from './components/Header';
 import { LoginScreen } from './components/LoginScreen';
 import { LojaView } from './components/LojaView';
 import { CuteleiroView } from './components/CuteleiroView';
+import { GuasqueiroView } from './components/GuasqueiroView';
 import { NovoPedidoModal } from './components/NovoPedidoModal';
 import { PhotoViewerModal } from './components/PhotoViewerModal';
 import { InstallAppModal } from './components/InstallAppModal';
@@ -31,21 +32,22 @@ function getInitialRole(): UserRole | null {
   try {
     if (typeof window === 'undefined') return null;
 
-    // 1. Check URL path (e.g. /loja or /cuteleiro)
+    // 1. Check URL path (e.g. /loja or /cuteleiro or /guasqueiro)
     const pathname = window.location.pathname.toLowerCase();
     if (pathname.includes('/loja')) return 'LOJA';
     if (pathname.includes('/cuteleiro')) return 'CUTELEIRO';
+    if (pathname.includes('/guasqueiro')) return 'GUASQUEIRO';
 
     // 2. Check query parameter (e.g. ?role=LOJA)
     const search = new URLSearchParams(window.location.search);
     const roleParam = search.get('role')?.toUpperCase();
-    if (roleParam === 'LOJA' || roleParam === 'CUTELEIRO') {
+    if (roleParam === 'LOJA' || roleParam === 'CUTELEIRO' || roleParam === 'GUASQUEIRO') {
       return roleParam as UserRole;
     }
 
     // 3. Check sessionStorage or localStorage
     const saved = sessionStorage.getItem('cutelaria_role') || localStorage.getItem('cutelaria_role');
-    if (saved === 'LOJA' || saved === 'CUTELEIRO') {
+    if (saved === 'LOJA' || saved === 'CUTELEIRO' || saved === 'GUASQUEIRO') {
       return saved as UserRole;
     }
   } catch {
@@ -84,7 +86,10 @@ export default function App() {
     try {
       sessionStorage.setItem('cutelaria_role', newRole);
       localStorage.setItem('cutelaria_role', newRole);
-      const targetPath = newRole === 'LOJA' ? '/loja' : '/cuteleiro';
+      let targetPath = '/loja';
+      if (newRole === 'CUTELEIRO') targetPath = '/cuteleiro';
+      else if (newRole === 'GUASQUEIRO') targetPath = '/guasqueiro';
+
       if (window.location.pathname !== targetPath) {
         window.history.pushState({ role: newRole }, '', targetPath);
       }
@@ -94,7 +99,10 @@ export default function App() {
   };
 
   const handleSwitchRole = () => {
-    const nextRole = role === 'LOJA' ? 'CUTELEIRO' : 'LOJA';
+    let nextRole: UserRole = 'LOJA';
+    if (role === 'LOJA') nextRole = 'CUTELEIRO';
+    else if (role === 'CUTELEIRO') nextRole = 'GUASQUEIRO';
+    else if (role === 'GUASQUEIRO') nextRole = 'LOJA';
     handleSelectRole(nextRole);
   };
 
@@ -223,15 +231,33 @@ export default function App() {
     setOrders((prev) => [newOrder, ...prev.filter((o) => o.id !== newOrder.id)]);
   };
 
-  // Update order handler (Loja edits order)
+  // Update order handler
   const handleUpdateOrder = async (orderId: string, updatedData: Partial<Order>) => {
     const existing = orders.find((o) => o.id === orderId);
-    // Se o pedido foi editado e estava como PRONTA, voltar para PENDENTE para o cuteleiro saber que houve alteração
-    const newStatus = existing?.status === 'ENTREGUE' ? 'ENTREGUE' : 'PENDENTE';
+    // Preservar o status do pedido se for apenas atualização de bainha feita pelo guasqueiro
+    const isGuasqueiroAction =
+      updatedData.bainhaFinalizada !== undefined ||
+      updatedData.bainhaFinalizadaAt !== undefined ||
+      updatedData.bainhaStatus !== undefined;
+
+    const targetStatus = isGuasqueiroAction
+      ? (existing?.status || 'PENDENTE')
+      : updatedData.status !== undefined
+      ? updatedData.status
+      : (existing?.status === 'ENTREGUE' ? 'ENTREGUE' : 'PENDENTE');
+
+    // Atualização otimista imediata no estado do React
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === orderId
+          ? { ...o, ...updatedData, status: targetStatus, updatedAt: new Date().toISOString() }
+          : o
+      )
+    );
 
     const updated = await updateOrder(orderId, {
       ...updatedData,
-      status: newStatus,
+      status: targetStatus,
     });
     setOrders((prev) => prev.map((o) => (o.id === updated.id ? updated : o)));
   };
@@ -353,7 +379,7 @@ export default function App() {
             onDeleteOrder={handleDeleteOrder}
             onOpenPhoto={handleOpenPhoto}
           />
-        ) : (
+        ) : role === 'CUTELEIRO' ? (
           <CuteleiroView
             orders={orders}
             onMarkOrderReady={handleMarkOrderReady}
@@ -361,6 +387,12 @@ export default function App() {
             onOpenPhoto={handleOpenPhoto}
             newOrderAlert={newOrderAlert}
             onDismissAlert={() => setNewOrderAlert(null)}
+          />
+        ) : (
+          <GuasqueiroView
+            orders={orders}
+            onUpdateOrder={handleUpdateOrder}
+            onOpenPhoto={handleOpenPhoto}
           />
         )}
       </main>
